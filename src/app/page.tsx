@@ -1,24 +1,20 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { LoanWizard } from '@/components/form/LoanWizard';
 import { ShieldCheck, Zap, Sparkles } from 'lucide-react';
 
 export default function HomePage() {
-  const [showWizard, setShowWizard] = useState(false);
-  const wizardRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   const handleStart = () => {
-    setShowWizard(true);
-    setTimeout(() => {
-      wizardRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+    // router to the questionnaire page
+    router.push('/get-started');
   };
 
   return (
     <div className="w-full">
-      <section className="relative overflow-hidden bg-slate-900 py-20 sm:py-28 text-white">
+      <section className="relative overflow-hidden bg-slate-900 py-20 sm:py-32 text-white min-h-[calc(100vh-64px)] flex flex-col justify-center">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center relative z-10">
           <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary backdrop-blur">
             <Sparkles className="h-3.5 w-3.5" /> 
@@ -54,20 +50,6 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-      </section>
-
-      <section id="calculator" ref={wizardRef} className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 scroll-mt-20">
-        {showWizard ? (
-          <LoanWizard />
-        ) : (
-          <div className="text-center py-20 rounded-3xl border-2 border-dashed border-slate-200 bg-white">
-            <h3 className="text-lg font-bold text-slate-700">Ready to find your best rate?</h3>
-            <p className="text-sm text-slate-500 mt-1 mb-5">Click below to start our quick comparison wizard.</p>
-            <Button size="lg" onClick={handleStart}>
-              Open Loan Selector Wizard
-            </Button>
-          </div>
-        )}
       </section>
     </div>
   );
