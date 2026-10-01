@@ -1,6 +1,9 @@
 Todo:
-- 1.Create database schema on supabase
-- 2. Establish CDR data fetching and parsering service
+- 1.✅Create database schema on supabase
+- Frontend form, collect user information, parser and store db
+- Add "Lender" and "Lender Product" in Prisma and DB
+- Write the algorithm of lender and product recommendation
+- 2. Establish CDR data fetching and parsering service (add Cdr related information table)
 - 3. Supabase Auth
 - 4. Frontend client side
 - 5. Frontend admin side

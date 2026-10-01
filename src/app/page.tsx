@@ -1,34 +1,73 @@
-import Link from 'next/link';
+'use client';
+
+import { useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { LoanWizard } from '@/components/form/LoanWizard';
+import { ShieldCheck, Zap, Sparkles } from 'lucide-react';
 
 export default function HomePage() {
+  const [showWizard, setShowWizard] = useState(false);
+  const wizardRef = useRef<HTMLDivElement>(null);
+
+  const handleStart = () => {
+    setShowWizard(true);
+    setTimeout(() => {
+      wizardRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, 100);
+  };
+
   return (
     <div className="w-full">
-      {/* Hero Section */}
-      <section className="bg-slate-900 py-20 text-white">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl">
-            Compare Low Home Loan Rates Across Australia
+      <section className="relative overflow-hidden bg-slate-900 py-20 sm:py-28 text-white">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center relative z-10">
+          <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary backdrop-blur">
+            <Sparkles className="h-3.5 w-3.5" /> 
+            Powered by Australian Open Banking (CDR)
+          </div>
+
+          <h1 className="mx-auto max-w-4xl text-4xl font-extrabold leading-tight tracking-tight sm:text-5xl md:text-6xl">
+            Compare Low Home Loan Rates <br className="hidden sm:inline" />
+            <span className="text-primary">Across Australia</span>
           </h1>
-          <p className="mx-auto mt-4 max-w-2xl text-lg text-slate-300">
-            Find, compare, and match the best home loan rates.
+
+          <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-300">
+            Skip the broker delays and complex lender jargon. Discover real-time mortgage rates tailored to your deposit and borrowing profile in under 2 minutes.
           </p>
-          
-          <div className="mt-8 flex justify-center gap-4">
-            <a
-              href="#calculator"
-              className="rounded-full bg-emerald-600 px-6 py-3 text-base font-semibold text-white shadow-lg transition hover:bg-emerald-500"
-            >
+
+          <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <Button size="lg" className="rounded-full px-8 text-base h-12" onClick={handleStart}>
               Start Rate Match
-            </a>
+            </Button>
+            <Button variant="ghost" size="lg" className="rounded-full text-slate-300 hover:text-white hover:bg-slate-800">
+              How It Works ↓
+            </Button>
+          </div>
+
+          <div className="mt-12 flex flex-wrap items-center justify-center gap-6 text-xs text-slate-400 sm:gap-10">
+            <div className="flex items-center gap-1.5">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              <span>No Impact on Credit Score</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Zap className="h-4 w-4 text-primary" />
+              <span>Direct Bank API Integration</span>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Placeholder Content Area */}
-      <section id="calculator" className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
-        <div>
-          <p className="text-lg font-bold text-slate-700">Placeholder</p>
-        </div>
+      <section id="calculator" ref={wizardRef} className="mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8 scroll-mt-20">
+        {showWizard ? (
+          <LoanWizard />
+        ) : (
+          <div className="text-center py-20 rounded-3xl border-2 border-dashed border-slate-200 bg-white">
+            <h3 className="text-lg font-bold text-slate-700">Ready to find your best rate?</h3>
+            <p className="text-sm text-slate-500 mt-1 mb-5">Click below to start our quick comparison wizard.</p>
+            <Button size="lg" onClick={handleStart}>
+              Open Loan Selector Wizard
+            </Button>
+          </div>
+        )}
       </section>
     </div>
   );
