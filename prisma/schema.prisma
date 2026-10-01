@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// --------------------------------------------------------------------
+// ENUMS
+// --------------------------------------------------------------------
+enum UserRole {
+  CUSTOMER
+  BROKER
+  ADMIN
+}
+
+enum LoanPurpose {
+  BUY_NEW
+  REFINANCE
+  INVESTMENT
+}
+
+enum RepaymentType {
+  P_AND_I
+  INTEREST_ONLY
+}
+
+enum PropertyType {
+  HOUSE
+  APARTMENT
+  TOWNHOUSE
+  VACANT_LAND
+}
+
+enum EmploymentStatus {
+  FULL_TIME
+  PART_TIME
+  CASUAL
+  SELF_EMPLOYED
+}
+
+enum MaritalStatus {
+  SINGLE
+  MARRIED
+  DE_FACTO
+}
+
+enum ApplicationStage {
+  LEAD_CAPTURED
+  RECOMMENDATION_SENT
+  APPLICATION_STARTED
+  DOCUMENTS_PENDING
+  SUBMITTED_TO_LENDER
+  PRE_APPROVED
+  UNCONDITIONAL_APPROVED
+  SETTLED
+}
+
+// --------------------------------------------------------------------
+// MODELS
+// --------------------------------------------------------------------
+model Profile {
+  id           String        @id @db.Uuid
+  email        String        @unique
+  fullName     String?       @map("full_name")
+  phone        String?
+  role         UserRole      @default(CUSTOMER)
+  avatarUrl    String?       @map("avatar_url")
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+  
+  applications Application[]
+
+  @@map("profiles")
+}
+
+model Application {
+  id                         String           @id @default(uuid()) @db.Uuid
+  userId                     String?          @map("user_id") @db.Uuid
+  guestSessionId             String?          @map("guest_session_id")
+  
+  loanPurpose                LoanPurpose      @map("loan_purpose")
+  propertyType               PropertyType     @map("property_type")
+  propertyPostcode           String           @map("property_postcode")
+  propertyValue              Decimal          @map("property_value") @db.Decimal(12, 2)
+  loanAmount                 Decimal          @map("loan_amount") @db.Decimal(12, 2)
+  calculatedLvr              Decimal          @map("calculated_lvr") @db.Decimal(5, 2)
+  
+  repaymentType              RepaymentType    @map("repayment_type")
+  isFixedRate                Boolean          @default(false) @map("is_fixed_rate")
+  fixedTermYears             Int?             @map("fixed_term_years")
+  isInterestOnly             Boolean          @default(false) @map("is_interest_only")
+  interestOnlyYears          Int?             @map("interest_only_years")
+  
+  employmentStatus           EmploymentStatus @map("employment_status")
+  employmentStartDate        DateTime?        @map("employment_start_date") @db.Date
+  grossAnnualSalary          Decimal          @map("gross_annual_salary") @db.Decimal(12, 2)
+  estimatedRentalIncomeWeekly Decimal?         @default(0.00) @map("estimated_rental_income_weekly") @db.Decimal(8, 2)
+  
+  maritalStatus              MaritalStatus    @map("marital_status")
+  numDependents              Int              @default(0) @map("num_dependents")
+  
+  applicantDetails           Json?            @default("{}") @map("applicant_details")
+  
+  currentStage               ApplicationStage @default(LEAD_CAPTURED) @map("current_stage")
+  recommendationSentAt       DateTime?        @map("recommendation_sent_at")
+  lastFollowedUpAt           DateTime?        @map("last_followed_up_at")
+  isFollowUpNeeded           Boolean          @default(false) @map("is_follow_up_needed")
+  
+  createdAt                  DateTime         @default(now()) @map("created_at")
+  updatedAt                  DateTime         @updatedAt @map("updated_at")
+
+  user                       Profile?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([guestSessionId])
+  @@map("applications")
+}
