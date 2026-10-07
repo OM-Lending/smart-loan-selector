@@ -5,8 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ShieldCheck, ArrowLeft, Smartphone } from 'lucide-react';
-// TODO: Import your configured Supabase client
-// import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/supabase/client';
 
 function SignUpContent() {
   const router = useRouter();
@@ -14,8 +13,9 @@ function SignUpContent() {
   const firstName = searchParams.get('name') || 'there';
   const email = searchParams.get('email') || '';
   
-  const [verifyStep, setVerifyStep] = useState<'phone' | 'otp'>('phone');
+  const supabase = createClient();
   
+  const [verifyStep, setVerifyStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [countdown, setCountdown] = useState(0); 
@@ -29,37 +29,31 @@ function SignUpContent() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
-  // TODO: Implement actual Supabase SMS OTP trigger
   const handleSendSMS = async () => {
     if (phone.length < 9) return alert('Please enter a valid mobile number.');
     
     setIsLoading(true);
     
-    /* 
-    // TODO: Uncomment when Supabase is configured
     const formattedPhone = `+61${phone.replace(/^0+/, '')}`;
-    const { error } = await supabase.auth.signInWithOtp({ phone: formattedPhone });
+    const { error } = await supabase.auth.signInWithOtp({ 
+      phone: formattedPhone 
+    });
+    
     if (error) { 
       alert(error.message); 
       setIsLoading(false); 
       return; 
     }
-    */
 
-    setTimeout(() => {
-      setIsLoading(false);
-      setVerifyStep('otp');
-      setCountdown(60);
-    }, 800);
+    setIsLoading(false);
+    setVerifyStep('otp');
+    setCountdown(60);
   };
 
-  // TODO: Implement OTP verification and associate pending form data with user session
   const handleVerifyOTP = async () => {
     if (otp.length !== 6) return;
     setIsLoading(true);
     
-    /* 
-    // TODO: Uncomment when Supabase and database schema are ready
     const formattedPhone = `+61${phone.replace(/^0+/, '')}`;
     const { data, error } = await supabase.auth.verifyOtp({ 
       phone: formattedPhone, 
@@ -67,41 +61,43 @@ function SignUpContent() {
       type: 'sms' 
     });
     
-    if (error) { 
-      alert('Invalid verification code'); 
+    if (error || !data.user) { 
+      alert(error?.message || 'Invalid verification code'); 
       setIsLoading(false); 
       return; 
     }
     
-    const userId = data.user?.id;
+    const userId = data.user.id;
     const pendingData = JSON.parse(localStorage.getItem('pending_loan_data') || '{}');
     
-    // TODO: Send data to API route or directly insert via Supabase client
-    const response = await fetch('/api/application/lead', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userId,
-        email,
-        phone: formattedPhone,
-        ...pendingData
-      })
-    });
+    try {
+      const response = await fetch('/api/application/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          email,
+          phone: formattedPhone,
+          ...pendingData
+        })
+      });
 
-    if (!response.ok) {
-      alert('Failed to save application data');
-      setIsLoading(false);
-      return;
-    }
+      if (!response.ok) {
+        throw new Error('Failed to save application data');
+      }
 
-    localStorage.removeItem('pending_loan_data');
-    */
-
-    setTimeout(() => {
-      alert('Account verified successfully! Redirecting to your dashboard...');
-      setIsLoading(false);
+      // MODIFICATION 6: Clean up and redirect with server refresh
+      localStorage.removeItem('pending_loan_data');
       router.push('/dashboard');
-    }, 1500);
+      router.refresh(); 
+    } catch (err) {
+      console.error(err);
+      alert('Verification succeeded, but there was an issue saving your data.');
+      router.push('/dashboard');
+      router.refresh();
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (

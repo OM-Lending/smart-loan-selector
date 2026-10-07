@@ -7,43 +7,12 @@ datasource db {
 }
 
 // --------------------------------------------------------------------
-// ENUMS
+// ENUMS (Aligned with frontend QUESTIONNAIRE config)
 // --------------------------------------------------------------------
 enum UserRole {
   CUSTOMER
   BROKER
   ADMIN
-}
-
-enum LoanPurpose {
-  BUY_NEW
-  REFINANCE
-  INVESTMENT
-}
-
-enum RepaymentType {
-  P_AND_I
-  INTEREST_ONLY
-}
-
-enum PropertyType {
-  HOUSE
-  APARTMENT
-  TOWNHOUSE
-  VACANT_LAND
-}
-
-enum EmploymentStatus {
-  FULL_TIME
-  PART_TIME
-  CASUAL
-  SELF_EMPLOYED
-}
-
-enum MaritalStatus {
-  SINGLE
-  MARRIED
-  DE_FACTO
 }
 
 enum ApplicationStage {
@@ -55,6 +24,26 @@ enum ApplicationStage {
   PRE_APPROVED
   UNCONDITIONAL_APPROVED
   SETTLED
+}
+
+enum LenderCategory {
+  BIG_4
+  NON_BANK
+}
+
+enum LoanGoal {
+  BUY
+  REFINANCE
+}
+
+enum RepaymentStructure {
+  P_AND_I
+  INTEREST_ONLY
+}
+
+enum RatePreference {
+  VARIABLE
+  FIXED
 }
 
 // --------------------------------------------------------------------
@@ -75,44 +64,94 @@ model Profile {
   @@map("profiles")
 }
 
+model Lender {
+  id          String          @id @default(uuid()) @db.Uuid
+  name        String          @unique
+  logoUrl     String?         @map("logo_url")
+  tier        Int             @default(1) // 1 = Tier 1 (Big 4), 2 = Tier 2 (Macquarie, ING)
+  category    LenderCategory
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
+
+  products    LenderProduct[]
+
+  @@map("lenders")
+}
+
+model LenderProduct {
+  id               String             @id @default(uuid()) @db.Uuid
+  lenderId         String             @map("lender_id") @db.Uuid
+  name             String
+  interestRate     Decimal            @map("interest_rate") @db.Decimal(5, 2)
+  comparisonRate   Decimal            @map("comparison_rate") @db.Decimal(5, 2)
+  rateType         RatePreference     @map("rate_type")
+  repaymentType    RepaymentStructure @map("repayment_type")
+  maxLvr           Decimal            @map("max_lvr") @db.Decimal(5, 2)
+  minIncome        Decimal?           @map("min_income") @db.Decimal(12, 2)
+  
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+
+  lender           Lender             @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+
+  @@map("lender_products")
+}
+
 model Application {
-  id                         String           @id @default(uuid()) @db.Uuid
-  userId                     String?          @map("user_id") @db.Uuid
-  guestSessionId             String?          @map("guest_session_id")
+  id                         String             @id @default(uuid()) @db.Uuid
+  userId                     String?            @map("user_id") @db.Uuid
   
-  loanPurpose                LoanPurpose      @map("loan_purpose")
-  propertyType               PropertyType     @map("property_type")
-  propertyPostcode           String           @map("property_postcode")
-  propertyValue              Decimal          @map("property_value") @db.Decimal(12, 2)
-  loanAmount                 Decimal          @map("loan_amount") @db.Decimal(12, 2)
-  calculatedLvr              Decimal          @map("calculated_lvr") @db.Decimal(5, 2)
+  // Shared Goal
+  goal                       LoanGoal
   
-  repaymentType              RepaymentType    @map("repayment_type")
-  isFixedRate                Boolean          @default(false) @map("is_fixed_rate")
-  fixedTermYears             Int?             @map("fixed_term_years")
-  isInterestOnly             Boolean          @default(false) @map("is_interest_only")
-  interestOnlyYears          Int?             @map("interest_only_years")
+  // Buy Branch Data
+  buySituation               String?            @map("buy_situation")
+  isFirstHomeBuyer           Boolean?           @map("is_first_home_buyer")
+  propertyUse                String?            @map("property_use")
+  propertyStatus             String?            @map("property_status")
+  propertyType               String?            @map("property_type")
+  propertyPostcode           String?            @map("property_postcode")
+  purchasePrice              Decimal?           @map("purchase_price") @db.Decimal(12, 2)
+  deposit                    Decimal?           @map("deposit") @db.Decimal(12, 2)
   
-  employmentStatus           EmploymentStatus @map("employment_status")
-  employmentStartDate        DateTime?        @map("employment_start_date") @db.Date
-  grossAnnualSalary          Decimal          @map("gross_annual_salary") @db.Decimal(12, 2)
-  estimatedRentalIncomeWeekly Decimal?         @default(0.00) @map("estimated_rental_income_weekly") @db.Decimal(8, 2)
+  // Refinance Branch Data
+  refinanceGoal              String?            @map("refinance_goal")
+  cashOutPurpose             String?            @map("cash_out_purpose")
+  propertyAddress            String?            @map("property_address")
+  currentLender              String?            @map("current_lender")
+  propertyValue              Decimal?           @map("property_value") @db.Decimal(12, 2)
+  currentLoanBalance         Decimal?           @map("current_loan_balance") @db.Decimal(12, 2)
+  currentInterestRate        Decimal?           @map("current_interest_rate") @db.Decimal(5, 2)
+  currentRepaymentType       String?            @map("current_repayment_type")
+  isFixedRate                Boolean?           @map("is_fixed_rate")
+  fixedRateExpiry            String?            @map("fixed_rate_expiry")
   
-  maritalStatus              MaritalStatus    @map("marital_status")
-  numDependents              Int              @default(0) @map("num_dependents")
+  // Loan Preferences
+  repaymentStructure         RepaymentStructure @map("repayment_structure")
+  interestOnlyYears          String?            @map("interest_only_years")
+  ratePreference             RatePreference     @map("rate_preference")
+  fixedYears                 String?            @map("fixed_years")
   
-  applicantDetails           Json?            @default("{}") @map("applicant_details")
-  
-  currentStage               ApplicationStage @default(LEAD_CAPTURED) @map("current_stage")
-  recommendationSentAt       DateTime?        @map("recommendation_sent_at")
-  lastFollowedUpAt           DateTime?        @map("last_followed_up_at")
-  isFollowUpNeeded           Boolean          @default(false) @map("is_follow_up_needed")
-  
-  createdAt                  DateTime         @default(now()) @map("created_at")
-  updatedAt                  DateTime         @updatedAt @map("updated_at")
+  // Personal & Financial Profile
+  employmentStatus           String             @map("employment_status")
+  employmentStartDate        String?            @map("employment_start_date")
+  grossAnnualSalary          Decimal            @map("gross_annual_salary") @db.Decimal(12, 2)
+  relationshipStatus         String             @map("relationship_status")
+  partnerEmploymentStatus    String?            @map("partner_employment_status")
+  partnerEmploymentStartDate String?            @map("partner_employment_start_date")
+  partnerGrossSalary         Decimal?           @map("partner_gross_salary") @db.Decimal(12, 2)
+  dependents                 Int                @default(0)
+  hasExistingLoans           Boolean?           @map("has_existing_loans")
+  existingMonthlyRepayment   Decimal?           @map("existing_monthly_repayment") @db.Decimal(12, 2)
+  hasCreditCard              Boolean?           @map("has_credit_card")
+  creditCardLimit            Decimal?           @map("credit_card_limit") @db.Decimal(12, 2)
 
-  user                       Profile?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Status & Metadata
+  currentStage               ApplicationStage   @default(LEAD_CAPTURED) @map("current_stage")
+  createdAt                  DateTime           @default(now()) @map("created_at")
+  updatedAt                  DateTime           @updatedAt @map("updated_at")
 
-  @@index([guestSessionId])
+  user                       Profile?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   @@map("applications")
 }
