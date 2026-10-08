@@ -21,6 +21,7 @@ function SignUpContent() {
   const [countdown, setCountdown] = useState(0); 
   const [isLoading, setIsLoading] = useState(false);
 
+  // Handle OTP resend countdown
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (countdown > 0) {
@@ -29,14 +30,15 @@ function SignUpContent() {
     return () => clearTimeout(timer);
   }, [countdown]);
 
+  // Format local AU number to E.164 standard
+  const getFormattedPhone = () => `+61${phone.replace(/^0+/, '')}`;
+
   const handleSendSMS = async () => {
     if (phone.length < 9) return alert('Please enter a valid mobile number.');
     
     setIsLoading(true);
-    
-    const formattedPhone = `+61${phone.replace(/^0+/, '')}`;
     const { error } = await supabase.auth.signInWithOtp({ 
-      phone: formattedPhone 
+      phone: getFormattedPhone() 
     });
     
     if (error) { 
@@ -54,7 +56,7 @@ function SignUpContent() {
     if (otp.length !== 6) return;
     setIsLoading(true);
     
-    const formattedPhone = `+61${phone.replace(/^0+/, '')}`;
+    const formattedPhone = getFormattedPhone();
     const { data, error } = await supabase.auth.verifyOtp({ 
       phone: formattedPhone, 
       token: otp, 
@@ -67,15 +69,14 @@ function SignUpContent() {
       return; 
     }
     
-    const userId = data.user.id;
     const pendingData = JSON.parse(localStorage.getItem('pending_loan_data') || '{}');
     
     try {
+      // Save application data linking to the authenticated user session
       const response = await fetch('/api/application/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId,
           email,
           phone: formattedPhone,
           ...pendingData
@@ -86,7 +87,7 @@ function SignUpContent() {
         throw new Error('Failed to save application data');
       }
 
-      // MODIFICATION 6: Clean up and redirect with server refresh
+      // Clear local cache and navigate to dashboard
       localStorage.removeItem('pending_loan_data');
       router.push('/dashboard');
       router.refresh(); 

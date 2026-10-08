@@ -7,7 +7,7 @@ datasource db {
 }
 
 // --------------------------------------------------------------------
-// ENUMS (Aligned with frontend QUESTIONNAIRE config)
+// ENUMS
 // --------------------------------------------------------------------
 enum UserRole {
   CUSTOMER
@@ -17,6 +17,8 @@ enum UserRole {
 
 enum ApplicationStage {
   LEAD_CAPTURED
+  QUOTED                  
+  EXPIRED                 
   RECOMMENDATION_SENT
   APPLICATION_STARTED
   DOCUMENTS_PENDING
@@ -47,7 +49,7 @@ enum RatePreference {
 }
 
 // --------------------------------------------------------------------
-// MODELS
+// MODELS - USER & CORE
 // --------------------------------------------------------------------
 model Profile {
   id           String        @id @db.Uuid
@@ -64,42 +66,67 @@ model Profile {
   @@map("profiles")
 }
 
+// --------------------------------------------------------------------
+// MODELS - LENDER & PRODUCT ARCHITECTURE (3-Tier)
+// --------------------------------------------------------------------
+
+// 1. Lender (Data Holder)
 model Lender {
   id          String          @id @default(uuid()) @db.Uuid
   name        String          @unique
   logoUrl     String?         @map("logo_url")
-  tier        Int             @default(1) // 1 = Tier 1 (Big 4), 2 = Tier 2 (Macquarie, ING)
+  tier        Int             @default(1) 
   category    LenderCategory
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  products    LenderProduct[]
+  products    LoanProduct[]    // One-to-Many relationship with LoanProduct
 
   @@map("lenders")
 }
 
-model LenderProduct {
-  id               String             @id @default(uuid()) @db.Uuid
-  lenderId         String             @map("lender_id") @db.Uuid
-  name             String
-  interestRate     Decimal            @map("interest_rate") @db.Decimal(5, 2)
-  comparisonRate   Decimal            @map("comparison_rate") @db.Decimal(5, 2)
-  rateType         RatePreference     @map("rate_type")
-  repaymentType    RepaymentStructure @map("repayment_type")
-  maxLvr           Decimal            @map("max_lvr") @db.Decimal(5, 2)
-  minIncome        Decimal?           @map("min_income") @db.Decimal(12, 2)
-  
-  createdAt        DateTime           @default(now()) @map("created_at")
-  updatedAt        DateTime           @updatedAt @map("updated_at")
+// 2. Loan Product (Synced via CDR API)
+model LoanProduct {
+  id           String             @id @default(uuid()) @db.Uuid
+  lenderId     String             @map("lender_id") @db.Uuid
+  externalId   String             @map("external_id")
+  productName  String             @map("product_name")
+  description  String?            @db.Text
+  maxLvr       Decimal?           @map("max_lvr") @db.Decimal(5, 2)
+  minLimit     Decimal?           @map("min_limit") @db.Decimal(12, 2)
+  isActive     Boolean            @default(true) @map("is_active")
+  createdAt    DateTime           @default(now()) @map("created_at")
+  updatedAt    DateTime           @updatedAt @map("updated_at")
 
-  lender           Lender             @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  lender       Lender             @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  rates        LoanRate[]
+  quotes       ApplicationQuote[] // Relation to trace back the original bank product
 
-  @@map("lender_products")
+  @@unique([lenderId, externalId]) // Ensure no duplicates per bank
+  @@map("loan_products")
 }
 
+// 3. Volatile Lending Rates
+model LoanRate {
+  id             String             @id @default(uuid()) @db.Uuid
+  productId      String             @map("product_id") @db.Uuid
+  rateType       String             @map("rate_type")      // Mapped from CDR API
+  repaymentType  String             @map("repayment_type") // Mapped from CDR API
+  loanPurpose    String             @map("loan_purpose")   // Mapped from CDR API
+  interestRate   Decimal            @map("interest_rate") @db.Decimal(5, 4) // E.g., 0.0550 for 5.5%
+  
+  product        LoanProduct        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@index([productId])
+  @@map("loan_rates")
+}
+
+// --------------------------------------------------------------------
+// MODELS - APPLICATIONS & QUOTE SNAPSHOTS
+// --------------------------------------------------------------------
 model Application {
   id                         String             @id @default(uuid()) @db.Uuid
-  userId                     String?            @map("user_id") @db.Uuid
+  userId                     String             @map("user_id") @db.Uuid // [CHANGED] Mandatory Relation
   
   // Shared Goal
   goal                       LoanGoal
@@ -146,12 +173,43 @@ model Application {
   hasCreditCard              Boolean?           @map("has_credit_card")
   creditCardLimit            Decimal?           @map("credit_card_limit") @db.Decimal(12, 2)
 
-  // Status & Metadata
+  // Status, Lifecycle & Metadata
   currentStage               ApplicationStage   @default(LEAD_CAPTURED) @map("current_stage")
+  quotedAt                   DateTime?          @map("quoted_at")  
+  expiresAt                  DateTime?          @map("expires_at") 
   createdAt                  DateTime           @default(now()) @map("created_at")
   updatedAt                  DateTime           @updatedAt @map("updated_at")
 
-  user                       Profile?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user                       Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quotes                     ApplicationQuote[] 
 
   @@map("applications")
+}
+
+// Immutable Quote Snapshots
+model ApplicationQuote {
+  id                String             @id @default(uuid()) @db.Uuid
+  applicationId     String             @map("application_id") @db.Uuid
+  productId         String             @map("product_id") @db.Uuid
+  
+  // Snapshot Data (Immutable)
+  quotedRate        Decimal            @map("quoted_rate") @db.Decimal(5, 2)
+  quotedRateType    RatePreference     @map("quoted_rate_type") 
+  quotedRepayment   RepaymentStructure @map("quoted_repayment") 
+  
+  // Engine Calculated Metrics
+  calculatedLvr     Decimal?           @map("calculated_lvr") @db.Decimal(5, 2)
+  monthlyRepayment  Decimal?           @map("monthly_repayment") @db.Decimal(12, 2)
+  
+  rank              Int                
+  isSelected        Boolean            @default(false) @map("is_selected")
+  
+  createdAt         DateTime           @default(now()) @map("created_at")
+
+  // Mandatory Relations
+  application       Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  product           LoanProduct        @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([applicationId])
+  @@map("application_quotes")
 }

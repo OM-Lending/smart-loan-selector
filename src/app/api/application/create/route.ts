@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { prisma } from '@/lib/prisma';
+import { createClient } from '@/server/lib/supabase';
+import { prisma } from '@/server/lib/prisma';
 import { ApplicationSchema } from '@/lib/validations/application';
 
 export async function POST(request: Request) {
   try {
+    // Authenticate user session
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
@@ -15,6 +16,7 @@ export async function POST(request: Request) {
       );
     }
 
+    // Parse and validate incoming payload
     const body = await request.json();
     const validationResult = ApplicationSchema.safeParse(body);
 
@@ -30,27 +32,30 @@ export async function POST(request: Request) {
 
     const validData = validationResult.data;
     
-    // Extract profile-specific fields
-    const { firstName, lastName, email, phone, ...applicationData } = validData;
+    // Extract profile-specific fields for upsert
+    const { firstName, lastName, email, phone, ...applicationData } = validData as any;
     const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
+    // Execute atomic transaction to ensure data integrity
     await prisma.$transaction(async (tx) => {
+      // 1. Update or create user profile
       await tx.profile.upsert({
         where: { id: user.id },
         update: {
-          phone: phone,
+          phone: phone || user.phone,
           fullName: fullName || undefined,
           email: email || undefined,
         },
         create: {
           id: user.id,
-          phone: phone,
-          email: email || `${user.id}@pending.com`,
+          phone: phone || user.phone,
+          email: email || `${user.id}@pending.com`, // Fallback for SMS-only signups
           fullName: fullName,
           role: 'CUSTOMER',
         }
       });
 
+      // 2. Persist loan application data
       await tx.application.create({
         data: {
           userId: user.id,
