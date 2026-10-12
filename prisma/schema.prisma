@@ -48,44 +48,90 @@ enum RatePreference {
   FIXED
 }
 
+enum SyncStatus {
+  IN_PROGRESS
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum RecommendationStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 // --------------------------------------------------------------------
-// MODELS - USER & CORE
+// 1. USER IDENTITY
 // --------------------------------------------------------------------
 model Profile {
-  id           String        @id @db.Uuid
-  email        String        @unique
-  fullName     String?       @map("full_name")
-  phone        String?
-  role         UserRole      @default(CUSTOMER)
-  avatarUrl    String?       @map("avatar_url")
-  createdAt    DateTime      @default(now()) @map("created_at")
-  updatedAt    DateTime      @updatedAt @map("updated_at")
+  id              String        @id @db.Uuid
+  email           String        @unique
+  fullName        String?       @map("full_name")
+  phone           String?
+  phoneVerifiedAt DateTime?     @map("phone_verified_at")
+  role            UserRole      @default(CUSTOMER)
+  avatarUrl       String?       @map("avatar_url")
+
+  deletedAt       DateTime?     @map("deleted_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
   
-  applications Application[]
+  applications    Application[]
 
   @@map("profiles")
 }
 
 // --------------------------------------------------------------------
-// MODELS - LENDER & PRODUCT ARCHITECTURE (3-Tier)
+// 2. LENDER & SYNC AUDIT
 // --------------------------------------------------------------------
-
-// 1. Lender (Data Holder)
 model Lender {
   id          String          @id @default(uuid()) @db.Uuid
   name        String          @unique
   logoUrl     String?         @map("logo_url")
   tier        Int             @default(1) 
   category    LenderCategory
+
+  isActive    Boolean         @default(true) @map("is_active")
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
-  products    LoanProduct[]    // One-to-Many relationship with LoanProduct
+  products    LoanProduct[]
+  syncRuns    LenderSyncRun[]
 
   @@map("lenders")
 }
 
-// 2. Loan Product (Synced via CDR API)
+model LenderSyncRun {
+  id               String     @id @default(uuid()) @db.Uuid
+  lenderId         String     @map("lender_id") @db.Uuid
+  source           String     @default("CDR")
+  startedAt        DateTime   @default(now()) @map("started_at")
+  completedAt      DateTime?  @map("completed_at")
+  
+  status           SyncStatus @default(IN_PROGRESS)
+  
+  productsSeen     Int        @default(0) @map("products_seen")
+  productsAdded    Int        @default(0) @map("products_added")
+  productsDisabled Int        @default(0) @map("products_disabled")
+  ratesSeen        Int        @default(0) @map("rates_seen")
+  ratesAdded       Int        @default(0) @map("rates_added")
+  ratesChanged     Int        @default(0) @map("rates_changed")
+  ratesDisabled    Int        @default(0) @map("rates_disabled")
+  
+  errorMessage     String?    @map("error_message") @db.Text
+
+  lender           Lender            @relation(fields: [lenderId], references: [id], onDelete: Restrict)
+  rateHistories    LoanRateHistory[]
+  quotes           ApplicationQuote[]
+
+  @@index([lenderId, startedAt])
+  @@map("lender_sync_runs")
+}
+
+// --------------------------------------------------------------------
+// 3. PRODUCT & RATE
+// --------------------------------------------------------------------
 model LoanProduct {
   id           String             @id @default(uuid()) @db.Uuid
   lenderId     String             @map("lender_id") @db.Uuid
@@ -98,40 +144,67 @@ model LoanProduct {
   createdAt    DateTime           @default(now()) @map("created_at")
   updatedAt    DateTime           @updatedAt @map("updated_at")
 
-  lender       Lender             @relation(fields: [lenderId], references: [id], onDelete: Cascade)
+  lender       Lender             @relation(fields: [lenderId], references: [id], onDelete: Restrict)
   rates        LoanRate[]
-  quotes       ApplicationQuote[] // Relation to trace back the original bank product
+  rateHistories LoanRateHistory[]
+  quotes       ApplicationQuote[] 
 
-  @@unique([lenderId, externalId]) // Ensure no duplicates per bank
+  @@unique([lenderId, externalId])
   @@map("loan_products")
 }
 
-// 3. Volatile Lending Rates
 model LoanRate {
   id             String             @id @default(uuid()) @db.Uuid
   productId      String             @map("product_id") @db.Uuid
-  rateType       String             @map("rate_type")      // Mapped from CDR API
-  repaymentType  String             @map("repayment_type") // Mapped from CDR API
-  loanPurpose    String             @map("loan_purpose")   // Mapped from CDR API
-  interestRate   Decimal            @map("interest_rate") @db.Decimal(5, 4) // E.g., 0.0550 for 5.5%
+  rateType       String             @map("rate_type")      
+  repaymentType  String             @map("repayment_type") 
+  loanPurpose    String             @map("loan_purpose")   
+  interestRate   Decimal            @map("interest_rate") @db.Decimal(7, 4)
   
-  product        LoanProduct        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  isActive       Boolean            @default(true) @map("is_active")
+  lastObservedAt DateTime           @default(now()) @map("last_observed_at")
+  lastSyncRunId  String?            @map("last_sync_run_id") @db.Uuid
+
+  product        LoanProduct        @relation(fields: [productId], references: [id], onDelete: Restrict)
   
-  @@index([productId])
+  @@unique([productId, rateType, repaymentType, loanPurpose])
+  @@index([productId, isActive])
   @@map("loan_rates")
 }
 
+model LoanRateHistory {
+  id               String        @id @default(uuid()) @db.Uuid
+  productId        String        @map("product_id") @db.Uuid
+  syncRunId        String        @map("sync_run_id") @db.Uuid
+
+  rateType         String        @map("rate_type")
+  repaymentType    String        @map("repayment_type")
+  loanPurpose      String        @map("loan_purpose")
+  interestRate     Decimal       @map("interest_rate") @db.Decimal(7, 4)
+
+  observedAt       DateTime      @default(now()) @map("observed_at")
+  contentHash      String        @map("content_hash")
+
+  sourceUpdatedAt  DateTime?     @map("source_updated_at")
+  effectiveFrom    DateTime?     @map("effective_from")
+  effectiveTo      DateTime?     @map("effective_to")
+
+  product          LoanProduct   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  syncRun          LenderSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Restrict)
+
+  @@index([productId, observedAt])
+  @@index([syncRunId])
+  @@map("loan_rate_history")
+}
+
 // --------------------------------------------------------------------
-// MODELS - APPLICATIONS & QUOTE SNAPSHOTS
+// 4. APPLICATION & RECOMMENDATION
 // --------------------------------------------------------------------
 model Application {
   id                         String             @id @default(uuid()) @db.Uuid
-  userId                     String             @map("user_id") @db.Uuid // [CHANGED] Mandatory Relation
+  userId                     String             @map("user_id") @db.Uuid
   
-  // Shared Goal
   goal                       LoanGoal
-  
-  // Buy Branch Data
   buySituation               String?            @map("buy_situation")
   isFirstHomeBuyer           Boolean?           @map("is_first_home_buyer")
   propertyUse                String?            @map("property_use")
@@ -141,25 +214,22 @@ model Application {
   purchasePrice              Decimal?           @map("purchase_price") @db.Decimal(12, 2)
   deposit                    Decimal?           @map("deposit") @db.Decimal(12, 2)
   
-  // Refinance Branch Data
   refinanceGoal              String?            @map("refinance_goal")
   cashOutPurpose             String?            @map("cash_out_purpose")
   propertyAddress            String?            @map("property_address")
   currentLender              String?            @map("current_lender")
   propertyValue              Decimal?           @map("property_value") @db.Decimal(12, 2)
   currentLoanBalance         Decimal?           @map("current_loan_balance") @db.Decimal(12, 2)
-  currentInterestRate        Decimal?           @map("current_interest_rate") @db.Decimal(5, 2)
+  currentInterestRate        Decimal?           @map("current_interest_rate") @db.Decimal(7, 4)
   currentRepaymentType       String?            @map("current_repayment_type")
   isFixedRate                Boolean?           @map("is_fixed_rate")
   fixedRateExpiry            String?            @map("fixed_rate_expiry")
   
-  // Loan Preferences
   repaymentStructure         RepaymentStructure @map("repayment_structure")
   interestOnlyYears          String?            @map("interest_only_years")
   ratePreference             RatePreference     @map("rate_preference")
   fixedYears                 String?            @map("fixed_years")
   
-  // Personal & Financial Profile
   employmentStatus           String             @map("employment_status")
   employmentStartDate        String?            @map("employment_start_date")
   grossAnnualSalary          Decimal            @map("gross_annual_salary") @db.Decimal(12, 2)
@@ -173,43 +243,68 @@ model Application {
   hasCreditCard              Boolean?           @map("has_credit_card")
   creditCardLimit            Decimal?           @map("credit_card_limit") @db.Decimal(12, 2)
 
-  // Status, Lifecycle & Metadata
   currentStage               ApplicationStage   @default(LEAD_CAPTURED) @map("current_stage")
-  quotedAt                   DateTime?          @map("quoted_at")  
-  expiresAt                  DateTime?          @map("expires_at") 
   createdAt                  DateTime           @default(now()) @map("created_at")
   updatedAt                  DateTime           @updatedAt @map("updated_at")
 
-  user                       Profile            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  quotes                     ApplicationQuote[] 
+  user                       Profile            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  recommendationRuns         RecommendationRun[] 
+  quotes                     ApplicationQuote[]
 
   @@map("applications")
 }
 
-// Immutable Quote Snapshots
+model RecommendationRun {
+  id               String               @id @default(uuid()) @db.Uuid
+  applicationId    String               @map("application_id") @db.Uuid
+
+  rulesVersion     String               @map("rules_version")
+  engineVersion    String               @map("engine_version")
+  algorithmHash    String?              @map("algorithm_hash")
+  
+  lenderDataAsOf   DateTime             @map("lender_data_as_of")
+  inputSnapshot    Json                 @map("input_snapshot") 
+  status           RecommendationStatus @default(RUNNING)
+
+  createdAt        DateTime             @default(now()) @map("created_at")
+
+  application      Application          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  quotes           ApplicationQuote[]
+
+  @@index([applicationId, createdAt])
+  @@map("recommendation_runs")
+}
+
 model ApplicationQuote {
-  id                String             @id @default(uuid()) @db.Uuid
-  applicationId     String             @map("application_id") @db.Uuid
-  productId         String             @map("product_id") @db.Uuid
+  id                  String             @id @default(uuid()) @db.Uuid
+  applicationId       String             @map("application_id") @db.Uuid
+  recommendationRunId String             @map("recommendation_run_id") @db.Uuid
+  productId           String             @map("product_id") @db.Uuid
   
-  // Snapshot Data (Immutable)
-  quotedRate        Decimal            @map("quoted_rate") @db.Decimal(5, 2)
-  quotedRateType    RatePreference     @map("quoted_rate_type") 
-  quotedRepayment   RepaymentStructure @map("quoted_repayment") 
+  lenderName          String             @map("lender_name")
+  productName         String             @map("product_name")
+  quotedRate          Decimal            @map("quoted_rate") @db.Decimal(7, 4)
+  quotedRateType      RatePreference     @map("quoted_rate_type") 
+  quotedRepayment     RepaymentStructure @map("quoted_repayment") 
+  annualFee           Decimal?           @map("annual_fee") @db.Decimal(10, 2)
   
-  // Engine Calculated Metrics
-  calculatedLvr     Decimal?           @map("calculated_lvr") @db.Decimal(5, 2)
-  monthlyRepayment  Decimal?           @map("monthly_repayment") @db.Decimal(12, 2)
-  
-  rank              Int                
-  isSelected        Boolean            @default(false) @map("is_selected")
-  
-  createdAt         DateTime           @default(now()) @map("created_at")
+  calculatedLvr       Decimal?           @map("calculated_lvr") @db.Decimal(5, 2)
+  monthlyRepayment    Decimal?           @map("monthly_repayment") @db.Decimal(12, 2)
+  score               Decimal?           @db.Decimal(8, 4)
+  rank                Int                
+  explanation         Json?              
+  isSelected          Boolean            @default(false) @map("is_selected")
+  createdAt           DateTime           @default(now()) @map("created_at")
 
-  // Mandatory Relations
-  application       Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  product           LoanProduct        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sourceSyncRunId     String             @map("source_sync_run_id") @db.Uuid
+  sourceObservedAt    DateTime           @map("source_observed_at")
 
+  application         Application        @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  recommendationRun   RecommendationRun  @relation(fields: [recommendationRunId], references: [id], onDelete: Restrict)
+  product             LoanProduct        @relation(fields: [productId], references: [id], onDelete: Restrict)
+  sourceSyncRun       LenderSyncRun      @relation(fields: [sourceSyncRunId], references: [id], onDelete: Restrict)
+  
   @@index([applicationId])
+  @@index([recommendationRunId])
   @@map("application_quotes")
 }

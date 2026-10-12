@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/server/lib/supabase';
 import { prisma } from '@/server/lib/prisma';
 import { ApplicationSchema } from '@/lib/validations/application';
+import { 
+  generateRecommendations, 
+  NotFoundError, 
+  ValidationError 
+} from '@/server/services/recommendation.service';
 
 export async function POST(request: Request) {
   try {
@@ -36,8 +41,8 @@ export async function POST(request: Request) {
     const { firstName, lastName, email, phone, ...applicationData } = validData as any;
     const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
-    // Execute atomic transaction to ensure data integrity
-    await prisma.$transaction(async (tx) => {
+    // Get the application ID
+    const createdApplicationId = await prisma.$transaction(async (tx) => {
       // 1. Update or create user profile
       await tx.profile.upsert({
         where: { id: user.id },
@@ -56,7 +61,7 @@ export async function POST(request: Request) {
       });
 
       // 2. Persist loan application data
-      await tx.application.create({
+      const application = await tx.application.create({
         data: {
           userId: user.id,
           goal: applicationData.goal,
@@ -97,12 +102,37 @@ export async function POST(request: Request) {
           currentStage: 'LEAD_CAPTURED',
         }
       });
+      
+      return application.id;
     });
 
-    return NextResponse.json({ success: true });
+    //Logging
+    console.log(`[Create API] Application ${createdApplicationId} created. Triggering Engine...`);
+    // Trigger recommendation service after application creation
+    const recommendationResult = await generateRecommendations({ 
+      applicationId: createdApplicationId, 
+      userId: user.id 
+    });
+    // Logging
+    console.log(`[Create API] Engine finished. Generated ${recommendationResult.count} quotes.`);
 
-  } catch (error) {
+    // Return the application ID and recommendation results
+    return NextResponse.json({ 
+      success: true, 
+      applicationId: createdApplicationId,
+      recommendation: recommendationResult 
+    });
+
+  } catch (error: any) {
     console.error('Failed to process application:', error);
+
+    if (error instanceof NotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 });
+    }
+    if (error instanceof ValidationError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
     return NextResponse.json(
       { error: 'Internal Server Error' }, 
       { status: 500 }
