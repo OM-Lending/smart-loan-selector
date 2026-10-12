@@ -1,9 +1,92 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createClient } from '@/server/lib/supabase';
+import { prisma } from '@/server/lib/prisma';
 import { generateRecommendations, NotFoundError, ValidationError } from '@/server/services/recommendation.service';
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
+
+const asRecord = (value: unknown): Record<string, unknown> =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+
+export async function GET(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const supabase = await createClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const { id } = ParamsSchema.parse(await context.params);
+    const run = await prisma.recommendationRun.findFirst({
+      where: { applicationId: id, application: { userId: user.id } },
+      orderBy: { createdAt: 'desc' },
+      include: { quotes: { orderBy: { rank: 'asc' } } },
+    });
+    if (!run) return NextResponse.json({
+      success: true,
+      applicationId: id,
+      recommendationStatus: 'PENDING',
+      count: 0,
+      quotes: [],
+    });
+
+    const quotes = run.quotes.map(quote => {
+      const product = asRecord(quote.productSnapshot);
+      const rate = asRecord(quote.rateSnapshot);
+      const feeItems = Array.isArray(quote.feeSnapshot) ? quote.feeSnapshot : [];
+      return {
+        id: quote.id,
+        rank: quote.rank,
+        productId: quote.productId,
+        rateId: quote.rateId,
+        lenderName: quote.lenderName,
+        productName: quote.productName,
+        eligibility: {
+          status: quote.eligibilityStatus,
+          ...asRecord(asRecord(quote.explanation).eligibility),
+          explanation: asRecord(quote.explanation).highlights ?? quote.explanation,
+        },
+        rate: {
+          value: quote.quotedRate.toString(),
+          type: quote.quotedRateType,
+          repaymentType: quote.quotedRepayment,
+          fixedPeriodMonths: rate.fixedPeriodMonths ?? null,
+          minAmount: rate.minAmount ?? null,
+          maxAmount: rate.maxAmount ?? null,
+          minLvr: rate.minLvr ?? null,
+          maxLvr: rate.maxLvr ?? null,
+        },
+        estimate: {
+          lvr: quote.calculatedLvr?.toString() ?? null,
+          monthlyRepayment: quote.monthlyRepayment?.toString() ?? null,
+        },
+        score: quote.score?.toString() ?? null,
+        features: product.features ?? [],
+        constraints: product.constraints ?? [],
+        fees: {
+          items: feeItems,
+          estimateComplete: feeItems.length > 0 && feeItems.every(item => asRecord(item).parseStatus === 'PARSED'),
+        },
+        sourceObservedAt: quote.sourceObservedAt.toISOString(),
+      };
+    });
+    return NextResponse.json({
+      success: true,
+      applicationId: id,
+      recommendationRunId: run.id,
+      runVersion: run.rulesVersion,
+      recommendationStatus: run.status,
+      count: quotes.length,
+      quotes,
+    });
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid application id' }, { status: 400 });
+    console.error('Failed to load recommendation results:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
 
 export async function POST(
   _request: Request,
@@ -27,7 +110,7 @@ export async function POST(
     
     return NextResponse.json(result);
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Recommendation Engine Error:', error);
 
     if (error instanceof NotFoundError) {

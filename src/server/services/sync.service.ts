@@ -1,160 +1,147 @@
 import 'server-only';
-import * as crypto from 'crypto';
-import { Decimal } from 'decimal.js';
 import { prisma } from '@/server/lib/prisma';
 import { fetchCDR, delay } from '@/server/lib/cdr-client';
+import { asCdrArray, asCdrObject, contentHash, normalizeCdrProduct, type CdrObject } from '@/server/services/cdr/cdr-normalizer';
+import { validateNormalizedProduct } from '@/server/services/cdr/cdr-validation';
 
 const TARGET_BANKS = [
-  'Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 
-  'Macquarie', 'ING', 'Bendigo', 'Bank of Queensland', 'BOQ',
-  'Bankwest', 'St.George', 'St George', 'Citi', 'AMP', 'Qudos', 'Bank of China', 'BOC',
-  'La Trobe', 'Pepper', 'Think Tank', 'Brighten'
+  'Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank', 'Macquarie', 'ING',
+  'Bendigo', 'Bank of Queensland', 'BOQ', 'Bankwest', 'St.George', 'St George',
+  'Citi', 'AMP', 'Qudos', 'Bank of China', 'BOC', 'La Trobe', 'Pepper', 'Think Tank', 'Brighten'
 ];
-
-const BIG_4_NAMES = ['Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank'];
-
-function normalizeRate(value: unknown): string {
-  const rate = new Decimal(String(value));
-  if (!rate.greaterThan(0) || !rate.lessThan(100)) throw new Error("Invalid interest rate");
-  return rate.toFixed(4); 
-}
-
-function generateRateHash(input: { rateType: string; repaymentType: string; loanPurpose: string; interestRate: string }) {
-  const canonical = [input.rateType, input.repaymentType, input.loanPurpose, input.interestRate].join("|");
-  return crypto.createHash("sha256").update(canonical).digest("hex");
+const BIG_4_NAMES = ['Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank'];
+async function fetchAllProductSummaries(baseUri: string): Promise<CdrObject[]> {
+  let nextUrl: string | null = new URL('/cds-au/v1/banking/products', baseUri).toString();
+  const seenUrls = new Set<string>();
+  const products: CdrObject[] = [];
+  while (nextUrl) {
+    if (seenUrls.has(nextUrl)) throw new Error('CDR product pagination loop detected');
+    if (seenUrls.size >= 100) throw new Error('CDR product pagination exceeded 100 pages');
+    seenUrls.add(nextUrl);
+    const response = asCdrObject(await fetchCDR(nextUrl, { 'x-v': '100', 'x-min-v': '1' }));
+    const data = asCdrObject(response.data);
+    if (!Array.isArray(data.products)) throw new Error(`CDR product page ${seenUrls.size} was incomplete`);
+    products.push(...asCdrArray(data.products));
+    const link = asCdrObject(response.links).next;
+    nextUrl = typeof link === 'string' && link.length > 0 ? new URL(link, nextUrl).toString() : null;
+  }
+  return products;
 }
 
 export async function syncCdrProductsService() {
-  const syncStartTime = new Date();
   const summaryData = await fetchCDR('https://api.cdr.gov.au/cdr-register/v1/banking/data-holders/brands/summary', { 'x-v': '1' });
   if (!summaryData?.data) throw new Error('Failed to fetch CDR brands');
-
+  const targetBrands = asCdrArray(summaryData.data).filter(brand => typeof brand.brandName === 'string' && TARGET_BANKS.some(target => (brand.brandName as string).toLowerCase().includes(target.toLowerCase())));
   let totalUpdated = 0;
 
-  // Filter brands to only those in TARGET_BANKS
-  const targetBrands = summaryData.data.filter((brand: any) => 
-    TARGET_BANKS.some(target => brand.brandName.toLowerCase().includes(target.toLowerCase()))
-  );
-
   for (const brand of targetBrands) {
-    if (!brand.publicBaseUri) continue;
-
-    // Check the Big 4 banks or not
-    const isBig4 = BIG_4_NAMES.some(b4 => brand.brandName.toLowerCase().includes(b4.toLowerCase()));
-
-    const dbLender = await prisma.lender.upsert({
-      where: { name: brand.brandName },
-      update: { logoUrl: brand.logoUri, isActive: true, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 },
-      create: { name: brand.brandName, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 }
+    if (typeof brand.publicBaseUri !== 'string' || typeof brand.brandName !== 'string') continue;
+    const brandName = brand.brandName;
+    const publicBaseUri = brand.publicBaseUri;
+    const isBig4 = BIG_4_NAMES.some(name => brandName.toLowerCase().includes(name.toLowerCase()));
+    const lender = await prisma.lender.upsert({
+      where: { name: brandName },
+      update: { logoUrl: typeof brand.logoUri === 'string' ? brand.logoUri : null, isActive: true, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 },
+      create: { name: brandName, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 },
     });
-
-    const syncRun = await prisma.lenderSyncRun.create({
-      data: { lenderId: dbLender.id, status: 'IN_PROGRESS', startedAt: syncStartTime }
-    });
-
-    let errorCount = 0;
-    let stats = { 
-      productsSeen: 0, productsAdded: 0, productsDisabled: 0, 
-      ratesSeen: 0, ratesAdded: 0, ratesChanged: 0, ratesDisabled: 0 
-    };
-
+    const run = await prisma.lenderSyncRun.create({ data: { lenderId: lender.id, status: 'IN_PROGRESS' } });
+    const stats = { productsSeen: 0, productsAdded: 0, productsDisabled: 0, ratesSeen: 0, ratesAdded: 0, ratesChanged: 0, ratesDisabled: 0 };
+    let errors = 0;
+    let complete = false;
     try {
-      const productsList = await fetchCDR(`${brand.publicBaseUri}/cds-au/v1/banking/products`, { 'x-v': '100', 'x-min-v': '1' });
-      const mortgages = (productsList?.data?.products || []).filter((p: any) => p.productCategory === 'RESIDENTIAL_MORTGAGES');
-
+      const products = (await fetchAllProductSummaries(publicBaseUri)).filter(p => p.productCategory === 'RESIDENTIAL_MORTGAGES');
       const seenProductIds: string[] = [];
 
-      for (const product of mortgages) {
+      for (const listed of products) {
         stats.productsSeen++;
         try {
-          await delay(300);
-          const detailsData = await fetchCDR(`${brand.publicBaseUri}/cds-au/v1/banking/products/${product.productId}`, { 'x-v': '100', 'x-min-v': '1' });
-          const details = detailsData?.data;
-          if (!details) continue;
-
-          const existingProduct = await prisma.loanProduct.findUnique({ where: { lenderId_externalId: { lenderId: dbLender.id, externalId: details.productId } } });
-          if (!existingProduct) stats.productsAdded++;
-
-          const dbProduct = await prisma.loanProduct.upsert({
-            where: { lenderId_externalId: { lenderId: dbLender.id, externalId: details.productId } },
-            update: { productName: details.name, isActive: true },
-            create: { lenderId: dbLender.id, externalId: details.productId, productName: details.name }
-          });
-          seenProductIds.push(dbProduct.id);
-
-          const validRates = (details.lendingRates || []).filter((r: any) => r.rate && r.lendingRateType);
-          
-          for (const r of validRates) {
-            stats.ratesSeen++;
-            const normalizedRateStr = normalizeRate(r.rate);
-            const currentHash = generateRateHash({
-              rateType: r.lendingRateType, repaymentType: r.repaymentType, loanPurpose: r.loanPurpose, interestRate: normalizedRateStr
-            });
-            
-            const existingRate = await prisma.loanRate.findUnique({
-              where: { productId_rateType_repaymentType_loanPurpose: { productId: dbProduct.id, rateType: r.lendingRateType, repaymentType: r.repaymentType, loanPurpose: r.loanPurpose } }
-            });
-
-            const needsHistoryUpdate = !existingRate || 
-              generateRateHash({
-                rateType: existingRate.rateType, repaymentType: existingRate.repaymentType, loanPurpose: existingRate.loanPurpose, interestRate: (existingRate.interestRate as any).toFixed(4)
-              }) !== currentHash;
-
-            if (!existingRate) stats.ratesAdded++;
-            else if (needsHistoryUpdate) stats.ratesChanged++;
-
-            await prisma.$transaction(async (tx) => {
-              await tx.loanRate.upsert({
-                where: { productId_rateType_repaymentType_loanPurpose: { productId: dbProduct.id, rateType: r.lendingRateType, repaymentType: r.repaymentType, loanPurpose: r.loanPurpose } },
-                update: { interestRate: normalizedRateStr, isActive: true, lastObservedAt: syncStartTime, lastSyncRunId: syncRun.id },
-                create: { productId: dbProduct.id, rateType: r.lendingRateType, repaymentType: r.repaymentType, loanPurpose: r.loanPurpose, interestRate: normalizedRateStr, isActive: true, lastObservedAt: syncStartTime, lastSyncRunId: syncRun.id }
-              });
-
-              if (needsHistoryUpdate) {
-                await tx.loanRateHistory.create({
-                  data: {
-                    productId: dbProduct.id, syncRunId: syncRun.id, rateType: r.lendingRateType, repaymentType: r.repaymentType, loanPurpose: r.loanPurpose, interestRate: normalizedRateStr, contentHash: currentHash,
-                    effectiveFrom: r.effectiveFrom ? new Date(r.effectiveFrom) : null,
-                    effectiveTo: r.effectiveTo ? new Date(r.effectiveTo) : null,
-                    sourceUpdatedAt: details.lastUpdated ? new Date(details.lastUpdated) : null
-                  }
-                });
-              }
-            });
+          await delay(250);
+          const listedProductId = typeof listed.productId === 'string' ? listed.productId : '';
+          if (!listedProductId) throw new Error('Product list entry has no productId');
+          const detailUrl = new URL(`/cds-au/v1/banking/products/${encodeURIComponent(listedProductId)}`, publicBaseUri).toString();
+          const response = asCdrObject(await fetchCDR(detailUrl, { 'x-v': '100', 'x-min-v': '1' }));
+          const normalizedProduct = normalizeCdrProduct(response.data);
+          const validation = validateNormalizedProduct(normalizedProduct);
+          if (validation.errors.length) throw new Error(validation.errors.join('; '));
+          if (validation.warnings.length) {
+            errors++;
+            console.warn(`Partial CDR normalization for ${listedProductId}:`, validation.warnings);
           }
-          
-          const disabledRates = await prisma.loanRate.updateMany({
-             where: { productId: dbProduct.id, lastObservedAt: { lt: syncStartTime }, isActive: true },
-             data: { isActive: false }
+          const productId = normalizedProduct.externalId;
+          const productName = normalizedProduct.productName || (typeof listed.name === 'string' ? listed.name : productId);
+          const existing = await prisma.loanProduct.findUnique({ where: { lenderId_externalId: { lenderId: lender.id, externalId: productId } } });
+          if (!existing) stats.productsAdded++;
+          const productData = await prisma.loanProduct.upsert({
+            where: { lenderId_externalId: { lenderId: lender.id, externalId: productId } },
+            update: {
+              productName, description: normalizedProduct.description, features: normalizedProduct.features,
+              rawPayload: normalizedProduct.rawPayload, maxLvr: normalizedProduct.maxLvr, minLimit: normalizedProduct.minLimit,
+              parseStatus: validation.warnings.length ? 'PARTIALLY_PARSED' : normalizedProduct.parseStatus, isActive: true,
+            },
+            create: {
+              lenderId: lender.id, externalId: productId, productName,
+              description: normalizedProduct.description, features: normalizedProduct.features, rawPayload: normalizedProduct.rawPayload,
+              maxLvr: normalizedProduct.maxLvr, minLimit: normalizedProduct.minLimit,
+              parseStatus: validation.warnings.length ? 'PARTIALLY_PARSED' : normalizedProduct.parseStatus,
+            },
           });
-          stats.ratesDisabled += disabledRates.count;
+          seenProductIds.push(productData.id);
 
-        } catch (err) {
-          errorCount++;
-          console.error(`Failed to sync product ${product.productId}`, err);
+          const productHash = contentHash(normalizedProduct.rawPayload);
+          const snapshotExists = await prisma.loanProductSnapshot.findUnique({ where: { productId_contentHash: { productId: productData.id, contentHash: productHash } }, select: { id: true } });
+          if (!snapshotExists) await prisma.loanProductSnapshot.create({ data: {
+            productId: productData.id, syncRunId: run.id, contentHash: productHash, rawPayload: normalizedProduct.rawPayload,
+          } });
+
+          await prisma.$transaction(async tx => {
+            await tx.loanProductConstraint.deleteMany({ where: { productId: productData.id } });
+            if (normalizedProduct.constraints.length) await tx.loanProductConstraint.createMany({ data: normalizedProduct.constraints.map(c => ({ ...c, productId: productData.id })) });
+            await tx.loanProductFee.deleteMany({ where: { productId: productData.id } });
+            if (normalizedProduct.fees.length) await tx.loanProductFee.createMany({ data: normalizedProduct.fees.map(f => ({ ...f, productId: productData.id })) });
+
+            const observedIds: string[] = [];
+            for (const rate of normalizedProduct.rates) {
+              stats.ratesSeen++;
+              const prev = await tx.loanRate.findUnique({ where: { productId_conditionHash: { productId: productData.id, conditionHash: rate.conditionHash } } });
+              const changed = !prev || contentHash({ rate: prev.interestRate.toFixed(4), minAmount: prev.minAmount?.toFixed(2), maxAmount: prev.maxAmount?.toFixed(2), minLvr: prev.minLvr?.toFixed(2), maxLvr: prev.maxLvr?.toFixed(2), conditions: prev.rateConditions }) !== contentHash({ rate: rate.interestRate, minAmount: rate.minAmount, maxAmount: rate.maxAmount, minLvr: rate.minLvr, maxLvr: rate.maxLvr, conditions: rate.rateConditions });
+              if (!prev) stats.ratesAdded++;
+              else if (changed) stats.ratesChanged++;
+              const saved = await tx.loanRate.upsert({
+                where: { productId_conditionHash: { productId: productData.id, conditionHash: rate.conditionHash } },
+                update: { ...rate, isActive: true, lastObservedAt: new Date(), lastSyncRunId: run.id },
+                create: { productId: productData.id, ...rate, lastObservedAt: new Date(), lastSyncRunId: run.id },
+              });
+              observedIds.push(saved.id);
+              if (changed) await tx.loanRateHistory.create({ data: {
+                productId: productData.id, syncRunId: run.id, rateType: rate.rateType, repaymentType: rate.repaymentType,
+                loanPurpose: rate.loanPurpose, interestRate: rate.interestRate,
+                contentHash: contentHash({ conditionHash: rate.conditionHash, interestRate: rate.interestRate }),
+              } });
+            }
+            if (validation.ratesSafeToReconcile) {
+              const deactivated = await tx.loanRate.updateMany({ where: { productId: productData.id, isActive: true, id: { notIn: observedIds } }, data: { isActive: false } });
+              stats.ratesDisabled += deactivated.count;
+            }
+          });
+          totalUpdated++;
+        } catch (error: unknown) {
+          errors++;
+          console.error(`Failed to sync product ${listed.productId}`, error);
         }
       }
-
-      const disabledProducts = await prisma.loanProduct.updateMany({
-        where: { lenderId: dbLender.id, id: { notIn: seenProductIds }, isActive: true },
-        data: { isActive: false }
-      });
-      stats.productsDisabled += disabledProducts.count;
-
-      const finalStatus = errorCount > 0 ? (stats.productsSeen > 0 ? 'PARTIAL' : 'FAILED') : 'SUCCESS';
-
-      await prisma.lenderSyncRun.update({
-        where: { id: syncRun.id },
-        data: { status: finalStatus, completedAt: new Date(), ...stats }
-      });
-
-    } catch (error: any) {
-      await prisma.lenderSyncRun.update({
-        where: { id: syncRun.id },
-        data: { status: 'FAILED', completedAt: new Date(), errorMessage: error.message, ...stats }
-      });
+      complete = errors === 0;
+      // Do not deactivate absent products after any partial/failed detail response.
+      if (complete) {
+        const deactivated = await prisma.loanProduct.updateMany({ where: { lenderId: lender.id, isActive: true, id: { notIn: seenProductIds } }, data: { isActive: false } });
+        stats.productsDisabled = deactivated.count;
+      }
+      await prisma.lenderSyncRun.update({ where: { id: run.id }, data: {
+        status: complete ? 'SUCCESS' : 'PARTIAL', completedAt: new Date(),
+        errorMessage: errors ? `${errors} product(s) had incomplete data or failed detail retrieval; missing-product deactivation skipped.` : null, ...stats,
+      } });
+    } catch (error: unknown) {
+      await prisma.lenderSyncRun.update({ where: { id: run.id }, data: { status: 'FAILED', completedAt: new Date(), errorMessage: error instanceof Error ? error.message : String(error), ...stats } });
     }
   }
-  
   return totalUpdated;
 }

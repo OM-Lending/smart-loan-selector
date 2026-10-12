@@ -36,9 +36,10 @@ export async function POST(request: Request) {
     }
 
     const validData = validationResult.data;
-    
+    const phone = typeof body.phone === 'string' ? body.phone : user.phone;
+
     // Extract profile-specific fields for upsert
-    const { firstName, lastName, email, phone, ...applicationData } = validData as any;
+    const { firstName, lastName, email, ...applicationData } = validData;
     const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
     // Get the application ID
@@ -109,21 +110,30 @@ export async function POST(request: Request) {
     //Logging
     console.log(`[Create API] Application ${createdApplicationId} created. Triggering Engine...`);
     // Trigger recommendation service after application creation
-    const recommendationResult = await generateRecommendations({ 
-      applicationId: createdApplicationId, 
-      userId: user.id 
-    });
-    // Logging
-    console.log(`[Create API] Engine finished. Generated ${recommendationResult.count} quotes.`);
+    let recommendationResult = null;
+    let recommendationStatus: 'COMPLETED' | 'PENDING' = 'COMPLETED';
+    try {
+      recommendationResult = await generateRecommendations({
+        applicationId: createdApplicationId,
+        userId: user.id,
+      });
+      console.log(`[Create API] Engine finished. Generated ${recommendationResult.count} quotes.`);
+    } catch (recommendationError) {
+      // The application transaction has already committed. Do not report a
+      // saved application as failed just because recommendations need retry.
+      recommendationStatus = 'PENDING';
+      console.error('[Create API] Application saved; recommendation generation failed:', recommendationError);
+    }
 
     // Return the application ID and recommendation results
     return NextResponse.json({ 
       success: true, 
       applicationId: createdApplicationId,
-      recommendation: recommendationResult 
-    });
+      recommendationStatus,
+      recommendation: recommendationResult,
+    }, { status: 201 });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to process application:', error);
 
     if (error instanceof NotFoundError) {

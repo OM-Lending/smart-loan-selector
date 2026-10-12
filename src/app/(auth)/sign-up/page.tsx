@@ -83,19 +83,28 @@ function SignUpContent() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to save application data');
+      const result = await response.json();
+      if (!response.ok || !result.success || !result.applicationId) {
+        throw new Error(result.error || 'Failed to save application data');
       }
 
-      // Clear local cache and navigate to dashboard
+      // Keep the generated result available to the next screen while it is
+      // being built; the authenticated GET endpoint can reload it by id.
+      localStorage.setItem('application_id', result.applicationId);
+      if (result.recommendation) {
+        sessionStorage.setItem('recommendation_results', JSON.stringify(result.recommendation));
+      }
+      sessionStorage.setItem('recommendation_status', result.recommendationStatus || 'PENDING');
+
+      // Clear local cache and open this application's recommendation results.
       localStorage.removeItem('pending_loan_data');
-      router.push('/dashboard');
+      router.push(`/applications/${result.applicationId}/recommendations`);
       router.refresh(); 
     } catch (err) {
       console.error(err);
-      alert('Verification succeeded, but there was an issue saving your data.');
-      router.push('/dashboard');
-      router.refresh();
+      alert(err instanceof Error
+        ? `Your phone was verified, but we could not save the application: ${err.message}`
+        : 'Your phone was verified, but we could not save the application. Please retry.');
     } finally {
       setIsLoading(false);
     }
@@ -160,7 +169,7 @@ function SignUpContent() {
             
             <h1 className="text-2xl font-bold text-slate-900 mb-2">Enter your code</h1>
             <p className="text-slate-500 text-sm mb-8">
-              We've sent a 6-digit secure code to <br />
+              We&apos;ve sent a 6-digit secure code to <br />
               <span className="font-semibold text-slate-800">+61 {phone}</span>
             </p>
 
@@ -191,7 +200,7 @@ function SignUpContent() {
                   onClick={handleSendSMS} 
                   className="text-sm text-primary font-bold hover:underline transition-all"
                 >
-                  Didn't receive the SMS? Resend
+                  Didn&apos;t receive the SMS? Resend
                 </button>
               )}
             </div>

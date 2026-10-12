@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Home, RefreshCw, Minus, Plus } from 'lucide-react';
 
-import { ApplicationSchema, type ApplicationPayload } from '@/lib/validations/application';
+import { ApplicationSchema, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,7 @@ export function LoanWizard() {
     watch,
     trigger,
     formState: { errors, isSubmitting }
-  } = useForm<ApplicationPayload>({
+  } = useForm<ApplicationFormInput, unknown, ApplicationPayload>({
     resolver: zodResolver(ApplicationSchema),
     mode: 'onChange',
     defaultValues: {
@@ -62,7 +62,7 @@ export function LoanWizard() {
   };
 
   const handleNumberInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    let val = e.target.value;
+    const val = e.target.value;
     if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
       e.target.value = val.replace(/^0+/, '');
     }
@@ -277,7 +277,7 @@ export function LoanWizard() {
           {step === 2 && formValues.goal === 'REFINANCE' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
               <div>
-                <Label className="text-base font-bold mb-3 block">What's your refinancing goal?</Label>
+                <Label className="text-base font-bold mb-3 block">What&apos;s your refinancing goal?</Label>
                 <div className="grid grid-cols-1 gap-2">
                   {QUESTIONNAIRE.refinanceGoals.map((item) => (
                     <button type="button" key={item.id} onClick={() => setValue('refinanceGoal', item.id, { shouldValidate: true })} className={`p-3 rounded-xl border text-left font-medium transition-all ${formValues.refinanceGoal === item.id ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{item.label}</button>
@@ -394,7 +394,7 @@ export function LoanWizard() {
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {QUESTIONNAIRE.repaymentStructures.map((item) => (
                      <button type="button" key={item.id} onClick={() => {
-                       setValue('repaymentStructure', item.id, { shouldValidate: true });
+                       setValue('repaymentStructure', item.id as ApplicationPayload['repaymentStructure'], { shouldValidate: true });
                        if (item.id === 'P_AND_I') setValue('interestOnlyYears', '');
                      }} className={`p-3 rounded-xl border font-medium transition-all ${formValues.repaymentStructure === item.id ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{item.label}</button>
                    ))}
@@ -418,7 +418,7 @@ export function LoanWizard() {
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {QUESTIONNAIRE.ratePreferences.map((item) => (
                      <button type="button" key={item.id} onClick={() => {
-                       setValue('ratePreference', item.id, { shouldValidate: true });
+                       setValue('ratePreference', item.id as ApplicationPayload['ratePreference'], { shouldValidate: true });
                        if (item.id === 'VARIABLE') setValue('fixedYears', '');
                      }} className={`p-3 rounded-xl border font-medium transition-all ${formValues.ratePreference === item.id ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{item.label}</button>
                    ))}
@@ -481,9 +481,9 @@ export function LoanWizard() {
 
                {formValues.relationshipStatus === 'MARRIED_DE_FACTO' && (
                  <div className="p-6 bg-slate-50 rounded-xl border animate-in fade-in space-y-6">
-                   <h4 className="font-bold text-slate-800">Partner's Employment Details</h4>
+                   <h4 className="font-bold text-slate-800">Partner&apos;s Employment Details</h4>
                    <div>
-                     <Label className="text-sm font-semibold mb-3 block text-slate-600">Partner's Employment Status</Label>
+                     <Label className="text-sm font-semibold mb-3 block text-slate-600">Partner&apos;s Employment Status</Label>
                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                        {QUESTIONNAIRE.employmentStatuses.map((item) => (
                          <button type="button" key={item.id} onClick={() => setValue('partnerEmploymentStatus', item.id, { shouldValidate: true })} className={`p-2 rounded-lg border text-xs font-semibold transition-all ${formValues.partnerEmploymentStatus === item.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-white text-slate-600'}`}>{item.label}</button>
@@ -510,14 +510,14 @@ export function LoanWizard() {
                <div>
                  <Label className="text-base font-bold mb-3 block">Do you have any financial dependents?</Label>
                  <div className="flex items-center gap-4">
-                   <button type="button" onClick={() => setValue('dependents', Math.max(0, (formValues.dependents || 0) - 1), { shouldValidate: true })} className="h-10 w-10 flex items-center justify-center rounded-full border border-border hover:bg-slate-50 active:bg-slate-100 transition-colors">
+                   <button type="button" onClick={() => setValue('dependents', Math.max(0, Number(formValues.dependents || 0) - 1), { shouldValidate: true })} className="h-10 w-10 flex items-center justify-center rounded-full border border-border hover:bg-slate-50 active:bg-slate-100 transition-colors">
                      <Minus className="h-4 w-4 text-slate-600" />
                    </button>
-                   <span className="text-xl font-bold w-4 text-center">{formValues.dependents || 0}</span>
-                   <button type="button" onClick={() => setValue('dependents', (formValues.dependents || 0) + 1, { shouldValidate: true })} className="h-10 w-10 flex items-center justify-center rounded-full border border-border hover:bg-slate-50 active:bg-slate-100 transition-colors">
+                   <span className="text-xl font-bold w-4 text-center">{Number(formValues.dependents || 0)}</span>
+                   <button type="button" onClick={() => setValue('dependents', Number(formValues.dependents || 0) + 1, { shouldValidate: true })} className="h-10 w-10 flex items-center justify-center rounded-full border border-border hover:bg-slate-50 active:bg-slate-100 transition-colors">
                      <Plus className="h-4 w-4 text-slate-600" />
                    </button>
-                   <span className="text-sm text-slate-500 ml-2">{(formValues.dependents || 0) >= 4 ? 'or more' : ''}</span>
+                   <span className="text-sm text-slate-500 ml-2">{Number(formValues.dependents || 0) >= 4 ? 'or more' : ''}</span>
                  </div>
                </div>
 
