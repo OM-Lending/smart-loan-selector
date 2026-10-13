@@ -3,6 +3,7 @@ import { prisma } from '@/server/lib/prisma';
 import { fetchCDR, delay } from '@/server/lib/cdr-client';
 import { asCdrArray, asCdrObject, contentHash, normalizeCdrProduct, type CdrObject } from '@/server/services/cdr/cdr-normalizer';
 import { validateNormalizedProduct } from '@/server/services/cdr/cdr-validation';
+import { reconcilePromotionSourceSnapshots } from '@/server/services/promotions/promotion-source.service';
 
 const TARGET_BANKS = [
   'Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank', 'Macquarie', 'ING',
@@ -60,7 +61,8 @@ export async function syncCdrProductsService() {
           if (!listedProductId) throw new Error('Product list entry has no productId');
           const detailUrl = new URL(`/cds-au/v1/banking/products/${encodeURIComponent(listedProductId)}`, publicBaseUri).toString();
           const response = asCdrObject(await fetchCDR(detailUrl, { 'x-v': '100', 'x-min-v': '1' }));
-          const normalizedProduct = normalizeCdrProduct(response.data);
+          const rawProduct = asCdrObject(response.data);
+          const normalizedProduct = normalizeCdrProduct(rawProduct);
           const validation = validateNormalizedProduct(normalizedProduct);
           if (validation.errors.length) throw new Error(validation.errors.join('; '));
           if (validation.warnings.length) {
@@ -92,6 +94,17 @@ export async function syncCdrProductsService() {
           if (!snapshotExists) await prisma.loanProductSnapshot.create({ data: {
             productId: productData.id, syncRunId: run.id, contentHash: productHash, rawPayload: normalizedProduct.rawPayload,
           } });
+
+          // An omitted optional CDR field is not proof that an offer was
+          // withdrawn. Only reconcile removals when the complete features
+          // array is explicitly present in the response.
+          if (Array.isArray(rawProduct.features)) {
+            await prisma.$transaction(tx => reconcilePromotionSourceSnapshots(
+              tx,
+              productData.id,
+              asCdrArray(rawProduct.features),
+            ));
+          }
 
           await prisma.$transaction(async tx => {
             await tx.loanProductConstraint.deleteMany({ where: { productId: productData.id } });

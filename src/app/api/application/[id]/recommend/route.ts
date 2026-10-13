@@ -62,6 +62,15 @@ export async function GET(
           lvr: quote.calculatedLvr?.toString() ?? null,
           monthlyRepayment: quote.monthlyRepayment?.toString() ?? null,
         },
+        comparison: {
+          horizonMonths: quote.comparisonHorizonMonths,
+          netCost: quote.comparisonCost?.toString() ?? null,
+          effectiveMonthlyCost: quote.comparisonHorizonMonths && quote.comparisonCost
+            ? (Number(quote.comparisonCost.toString()) / quote.comparisonHorizonMonths).toFixed(2)
+            : null,
+          rateAssumption: 'Current quoted rate held constant for the full comparison horizon',
+        },
+        promotions: Array.isArray(quote.promotionSnapshot) ? quote.promotionSnapshot : [],
         score: quote.score?.toString() ?? null,
         features: product.features ?? [],
         constraints: product.constraints ?? [],

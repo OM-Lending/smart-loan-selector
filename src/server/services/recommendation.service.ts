@@ -2,12 +2,14 @@ import 'server-only';
 import { prisma } from '@/server/lib/prisma';
 import { Decimal } from 'decimal.js';
 import { RatePreference, RepaymentStructure, Prisma, QuoteEligibilityStatus } from '@prisma/client';
+import { assessPromotions, projectNetCost } from '@/server/services/promotions/promotion-evaluator';
 
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
 
 const RULES_VERSION = 'mortgage-v2.0.0';
-const ENGINE_VERSION = 'recommendation-engine-v4';
+const ENGINE_VERSION = 'recommendation-engine-v8';
+const COMPARISON_HORIZON_MONTHS = 60;
 const D = (value: unknown) => new Decimal(value === null || value === undefined ? 0 : String(value));
 // Older database rows were persisted directly from CDR RateString (ratio
 // form); normalize them while reading until the next full CDR sync rewrites
@@ -78,6 +80,12 @@ function assess(candidate: Candidate, loanAmount: Decimal, lvr: Decimal, request
   return { status, reasons, warnings, unknownFees };
 }
 
+function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 export async function generateRecommendations({ applicationId, userId }: { applicationId: string; userId: string }) {
   const app = await prisma.application.findFirst({ where: { id: applicationId, userId, user: { deletedAt: null } } });
   if (!app) throw new NotFoundError('Application not found or unauthorized');
@@ -107,15 +115,48 @@ export async function generateRecommendations({ applicationId, userId }: { appli
       lastSyncRunId: { not: null },
       product: { isActive: true, lender: { isActive: true } },
     },
-    include: { product: { include: { lender: true, constraints: true, fees: true } } },
+    include: { product: { include: {
+      lender: true,
+      constraints: true,
+      fees: true,
+      promotionSources: {
+        where: { isCurrent: true, reviewStatus: 'REVIEWED', changeType: { not: 'REMOVED' } },
+        include: { promotions: { where: { status: 'PUBLISHED', parseStatus: 'PARSED' } } },
+      },
+    } } },
   });
 
   const assessed = rates.map(candidate => {
     const eligibility = assess(candidate, loanAmount, lvr, requestedIOYears, requestedFixedYears);
     const rate = asPercentagePoints(candidate.interestRate);
     const repayment = calculateMonthlyRepayment(loanAmount, rate, 30, targetRepayment);
-    // Rank products from their rate and eligibility only; lender size/category
-    // must not grant a separate score advantage.
+    const promotionContext = {
+      application: {
+        ...jsonObject(app.promotionAnswers),
+        goal: app.goal,
+        isFirstHomeBuyer: app.isFirstHomeBuyer,
+        propertyUse: targetPurpose,
+      },
+      loan: { amount: loanAmount.toNumber(), lvr: lvr.toNumber() },
+    };
+    const promotions = assessPromotions(
+      candidate.product.promotionSources.flatMap(source => source.promotions.map(promotion => ({
+        ...promotion,
+        sourceSnapshot: { sourceFeature: source.sourceFeature, sourceHash: source.sourceHash },
+      }))),
+      promotionContext,
+    );
+    const appliedCashback = promotions.reduce((sum, promotion) => sum.plus(promotion.appliedAmount), new Decimal(0));
+    const projected = projectNetCost(
+      loanAmount,
+      rate,
+      targetRepayment,
+      requestedIOYears * 12,
+      COMPARISON_HORIZON_MONTHS,
+      appliedCashback,
+    );
+    // Keep the rate-only score as a tie-breaker. Primary ordering uses net
+    // projected borrowing cost with only positively matched cashback applied.
     const score = new Decimal(100).minus(rate.mul(10));
     const reasons = [
       `Estimated LVR ${lvr.toFixed(2)}%`, `Rate ${candidate.rateType.toLowerCase()} selected`,
@@ -123,11 +164,12 @@ export async function generateRecommendations({ applicationId, userId }: { appli
       ...(requestedFixedYears ? [`Requested fixed period: ${requestedFixedYears} years`] : []),
       ...eligibility.reasons, ...eligibility.warnings,
     ];
-    return { candidate, eligibility, rate, repayment, score, reasons };
+    return { candidate, eligibility, rate, repayment, score, reasons, promotions, appliedCashback, projected };
   });
   assessed.sort((a, b) => {
     const statusOrder = { ELIGIBLE: 0, REVIEW_REQUIRED: 1, INELIGIBLE: 2 };
     return statusOrder[a.eligibility.status as keyof typeof statusOrder] - statusOrder[b.eligibility.status as keyof typeof statusOrder]
+      || a.projected.netCost.minus(b.projected.netCost).toNumber()
       || b.score.minus(a.score).toNumber();
   });
   const top = assessed.filter(x => x.eligibility.status !== 'INELIGIBLE').slice(0, 5);
@@ -137,6 +179,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
     property: { value: propertyValue.toFixed(2), postcode: app.propertyPostcode, type: app.propertyType, use: targetPurpose },
     loan: { amount: loanAmount.toFixed(2), lvr: lvr.toFixed(2), repayment: targetRepayment, requestedInterestOnlyYears: requestedIOYears, requestedFixedYears },
     preferences: { rateType: targetRateType },
+    promotionAnswers: jsonObject(app.promotionAnswers),
   };
 
   const runId = await prisma.$transaction(async tx => {
@@ -150,6 +193,8 @@ export async function generateRecommendations({ applicationId, userId }: { appli
       quotedRate: result.rate, quotedRateType: targetRateType as RatePreference,
       quotedRepayment: targetRepayment as RepaymentStructure, annualFee: null, calculatedLvr: lvr,
       monthlyRepayment: result.repayment, score: result.score, rank: index + 1,
+      comparisonCost: result.projected.netCost,
+      comparisonHorizonMonths: COMPARISON_HORIZON_MONTHS,
       explanation: {
         summary: `${result.candidate.product.lender.name} ${result.candidate.product.productName}`,
         eligibility: {
@@ -172,6 +217,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
         conditions: result.candidate.rateConditions,
       } as Prisma.InputJsonValue,
       feeSnapshot: result.candidate.product.fees.map(fee => ({ name: fee.name, type: fee.feeType, amount: fee.amount?.toString() ?? null, frequency: fee.frequency, parseStatus: fee.parseStatus, raw: fee.rawFee })) as Prisma.InputJsonValue,
+      promotionSnapshot: result.promotions as unknown as Prisma.InputJsonValue,
       sourceSyncRunId: result.candidate.lastSyncRunId!, sourceObservedAt: result.candidate.lastObservedAt,
     })) });
     return run.id;
@@ -183,6 +229,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
     runVersion: RULES_VERSION,
     count: top.length,
     quotes: top.map((result, index) => ({
+      id: result.candidate.id,
       rank: index + 1,
       productId: result.candidate.productId,
       rateId: result.candidate.id,
@@ -211,6 +258,14 @@ export async function generateRecommendations({ applicationId, userId }: { appli
         loanTermYears: 30,
       },
       score: result.score.toNumber(),
+      comparison: {
+        horizonMonths: COMPARISON_HORIZON_MONTHS,
+        netCost: result.projected.netCost.toFixed(2),
+        effectiveMonthlyCost: result.projected.effectiveMonthlyCost.toFixed(2),
+        projectedBalance: result.projected.projectedBalance.toFixed(2),
+        rateAssumption: 'Current quoted rate held constant for the full comparison horizon',
+      },
+      promotions: result.promotions,
       features: result.candidate.product.features,
       fees: {
         items: result.candidate.product.fees.map(fee => ({
