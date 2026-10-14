@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useAuth, useSignIn, useSignUp } from '@clerk/nextjs';
+import { useEffect, useState } from 'react';
+import { useSignIn, useSignUp } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -14,7 +14,6 @@ type EmailOtpFormProps = {
 };
 
 export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser, userMetadata, onVerified }: EmailOtpFormProps) {
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const { signUp, fetchStatus: signUpFetchStatus } = useSignUp();
   const { signIn, fetchStatus: signInFetchStatus } = useSignIn();
   const signUpLoaded = signUpFetchStatus === 'idle';
@@ -28,25 +27,6 @@ export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser,
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [restartRequired, setRestartRequired] = useState(false);
-  const [verifiedEmailPending, setVerifiedEmailPending] = useState<string | null>(null);
-  const completionStarted = useRef(false);
-
-  // Do not navigate or call protected APIs immediately after finalize(). Wait
-  // until Clerk has propagated the new active session to its client state.
-  useEffect(() => {
-    if (!authLoaded || !isSignedIn || !verifiedEmailPending || completionStarted.current) return;
-    completionStarted.current = true;
-    void (async () => {
-      try {
-        await onVerified(verifiedEmailPending);
-      } catch (cause) {
-        setError(getErrorMessage(cause, 'Your email is verified, but the next step could not be completed.'));
-      } finally {
-        setVerifiedEmailPending(null);
-        completionStarted.current = false;
-      }
-    })();
-  }, [authLoaded, isSignedIn, onVerified, verifiedEmailPending]);
 
   useEffect(() => {
     if (countdown <= 0) return;
@@ -121,7 +101,7 @@ export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser,
       }
       setVerified(true);
       setNotice('Email verified.');
-      setVerifiedEmailPending(normalizedEmail);
+      await onVerified(normalizedEmail);
     } catch (cause) {
       setError(getErrorMessage(cause, 'The next step could not be completed.'));
     } finally {

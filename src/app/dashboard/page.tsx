@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@clerk/nextjs';
 import { AlertCircle, ArrowRight, ClipboardList, Clock3, Plus, Sparkles } from 'lucide-react';
 
 type Application = {
@@ -51,22 +50,19 @@ function recommendationLabel(application: Application) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const [applications, setApplications] = useState<Application[] | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!authLoaded) return;
-    if (!isSignedIn) {
-      router.replace('/login?next=%2Fdashboard');
-      return;
-    }
     let active = true;
     void (async () => {
       try {
         const response = await fetch('/api/application', { cache: 'no-store' });
         const body = await response.json() as ApplicationListResponse;
-        if (response.status === 401) throw new Error('Your session could not be confirmed by the server. Please sign in again.');
+        if (response.status === 401) {
+          router.replace('/login?next=%2Fdashboard');
+          return;
+        }
         if (!response.ok) throw new Error(body.error || 'Could not load your applications.');
         if (active) setApplications(body.applications);
       } catch (cause) {
@@ -74,7 +70,7 @@ export default function DashboardPage() {
       }
     })();
     return () => { active = false; };
-  }, [authLoaded, isSignedIn, router]);
+  }, [router]);
 
   return <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6 lg:px-8">
     <div className="mx-auto max-w-5xl">
