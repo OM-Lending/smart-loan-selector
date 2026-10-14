@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/server/lib/supabase';
 import { prisma } from '@/server/lib/prisma';
+import { getAuthenticatedProfile } from '@/server/lib/auth';
 import { generateRecommendations, NotFoundError, ValidationError } from '@/server/services/recommendation.service';
 
 const ParamsSchema = z.object({ id: z.string().uuid() });
@@ -14,13 +14,13 @@ export async function GET(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const identity = await getAuthenticatedProfile();
+    if (!identity) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!identity.profile) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
 
     const { id } = ParamsSchema.parse(await context.params);
     const run = await prisma.recommendationRun.findFirst({
-      where: { applicationId: id, application: { userId: user.id } },
+      where: { applicationId: id, application: { userId: identity.profile.id } },
       orderBy: { createdAt: 'desc' },
       include: { quotes: { orderBy: { rank: 'asc' } } },
     });
@@ -102,19 +102,18 @@ export async function POST(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const identity = await getAuthenticatedProfile();
+    if (!identity) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    if (!identity.profile) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
 
     const rawParams = await context.params;
 
     const { id } = ParamsSchema.parse(rawParams);
     console.log(`[API] Triggering recommendation for Application ID: ${id}`);
 
-    const result = await generateRecommendations({ applicationId: id, userId: user.id });
+    const result = await generateRecommendations({ applicationId: id, userId: identity.profile.id });
     console.log(`[API] Recommendation Success. Returned ${result.count} quotes.`);
     
     return NextResponse.json(result);

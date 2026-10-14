@@ -1,14 +1,14 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/server/lib/supabase';
 import { prisma } from '@/server/lib/prisma';
+import { getAuthenticatedProfile } from '@/server/lib/auth';
 
 export async function GET() {
-  const supabase = await createClient();
-  const { data: { user }, error } = await supabase.auth.getUser();
-  if (error || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const identity = await getAuthenticatedProfile();
+  if (!identity) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!identity.profile) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
 
   const application = await prisma.application.findFirst({
-    where: { userId: user.id, user: { deletedAt: null } },
+    where: { userId: identity.profile.id, user: { deletedAt: null } },
     orderBy: { createdAt: 'desc' },
     select: { id: true },
   });

@@ -41,6 +41,7 @@ export function LoanWizard() {
       firstName: '',
       lastName: '',
       email: '',
+      phone: '',
     },
   });
 
@@ -114,10 +115,8 @@ export function LoanWizard() {
   };
 
   const onSubmit = async (data: ApplicationPayload) => {
-    localStorage.setItem('pending_loan_data', JSON.stringify(data));
-    setTimeout(() => {
-      router.push(`/sign-up?name=${encodeURIComponent(data.firstName || '')}&email=${encodeURIComponent(data.email || '')}`);
-    }, 800);
+    sessionStorage.setItem('pending_loan_data', JSON.stringify(data));
+    router.push('/sign-up');
   };
 
   const handleBack = () => updateUrlAndStep(Math.max(1, step - 1));
@@ -594,6 +593,25 @@ export function LoanWizard() {
                  <Input type="email" placeholder="hello@example.com.au" {...register('email')} disabled={isSubmitting} className={errors.email ? 'border-red-500' : ''} />
                  {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email.message}</p>}
                </div>
+               <div>
+                 <Label className="mb-2 block font-semibold">Australian Mobile Number</Label>
+                 <div className="flex gap-2">
+                   <span className="flex items-center rounded-md border bg-slate-100 px-4 text-sm font-medium text-slate-600">+61</span>
+                   <Input
+                     type="tel"
+                     inputMode="numeric"
+                     autoComplete="tel-national"
+                     placeholder="4xx xxx xxx"
+                     maxLength={9}
+                     {...register('phone')}
+                     onChange={(event) => setValue('phone', event.target.value.replace(/\D/g, '').slice(0, 9), { shouldValidate: true })}
+                     disabled={isSubmitting}
+                     className={errors.phone ? 'border-red-500' : ''}
+                   />
+                 </div>
+                 {errors.phone && <p className="mt-1 text-sm text-red-500">{errors.phone.message}</p>}
+                 <p className="mt-1 text-xs text-slate-500">We will save this number to your profile. No SMS verification is required.</p>
+               </div>
              </div>
           )}
         </div>
@@ -611,7 +629,7 @@ export function LoanWizard() {
 
           {step === 5 && (
             <Button type="submit" disabled={isSubmitting} className="px-8 bg-primary hover:bg-primary/90 text-white font-bold">
-              Get My Rates
+              Continue to email verification
             </Button>
           )}
         </div>

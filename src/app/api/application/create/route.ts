@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/server/lib/supabase';
 import { prisma } from '@/server/lib/prisma';
+import { getAuthenticatedProfile } from '@/server/lib/auth';
+import { randomUUID } from 'node:crypto';
 import { ApplicationSchema } from '@/lib/validations/application';
 import { 
   generateRecommendations, 
@@ -10,11 +11,8 @@ import {
 
 export async function POST(request: Request) {
   try {
-    // Authenticate user session
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const identity = await getAuthenticatedProfile();
+    if (!identity) {
       return NextResponse.json(
         { error: 'Unauthorized - Invalid or missing session' }, 
         { status: 401 }
@@ -36,35 +34,43 @@ export async function POST(request: Request) {
     }
 
     const validData = validationResult.data;
-    const phone = typeof body.phone === 'string' ? body.phone : user.phone;
+    const normalizedEmail = validData.email.trim().toLowerCase();
+    if (!identity.emailVerified || identity.email !== normalizedEmail) {
+      return NextResponse.json(
+        { error: 'Verify the same email address before saving your application.' },
+        { status: 403 }
+      );
+    }
+    const phone = `+61${validData.phone}`;
 
     // Extract profile-specific fields for upsert
-    const { firstName, lastName, email, ...applicationData } = validData;
+    const { firstName, lastName, ...applicationData } = validData;
     const fullName = [firstName, lastName].filter(Boolean).join(' ');
 
     // Get the application ID
-    const createdApplicationId = await prisma.$transaction(async (tx) => {
-      // 1. Update or create user profile
-      await tx.profile.upsert({
-        where: { id: user.id },
-        update: {
-          phone: phone || user.phone,
-          fullName: fullName || undefined,
-          email: email || undefined,
-        },
-        create: {
-          id: user.id,
-          phone: phone || user.phone,
-          email: email || `${user.id}@pending.com`, // Fallback for SMS-only signups
-          fullName: fullName,
-          role: 'CUSTOMER',
-        }
-      });
+    const { applicationId: createdApplicationId, userId: createdApplicationOwnerId } = await prisma.$transaction(async (tx) => {
+      // Keep the database's UUID profile identity stable. Clerk IDs are strings
+      // and are stored only as an external identity mapping.
+      let profile = await tx.profile.findUnique({ where: { clerkUserId: identity.clerkUserId } });
+      if (!profile) profile = await tx.profile.findUnique({ where: { email: normalizedEmail } });
+      if (profile?.clerkUserId && profile.clerkUserId !== identity.clerkUserId) {
+        throw new Error('This email is already linked to another login account.');
+      }
+      if (profile) {
+        profile = await tx.profile.update({
+          where: { id: profile.id },
+          data: { clerkUserId: identity.clerkUserId, phone, fullName: fullName || undefined, email: normalizedEmail },
+        });
+      } else {
+        profile = await tx.profile.create({
+          data: { id: randomUUID(), clerkUserId: identity.clerkUserId, email: normalizedEmail, phone, fullName, role: 'CUSTOMER' },
+        });
+      }
 
       // 2. Persist loan application data
       const application = await tx.application.create({
         data: {
-          userId: user.id,
+          userId: profile.id,
           goal: applicationData.goal,
           buySituation: applicationData.buySituation,
           isFirstHomeBuyer: applicationData.isFirstHomeBuyer,
@@ -104,7 +110,7 @@ export async function POST(request: Request) {
         }
       });
       
-      return application.id;
+      return { applicationId: application.id, userId: profile.id };
     });
 
     //Logging
@@ -115,7 +121,7 @@ export async function POST(request: Request) {
     try {
       recommendationResult = await generateRecommendations({
         applicationId: createdApplicationId,
-        userId: user.id,
+        userId: createdApplicationOwnerId,
       });
       console.log(`[Create API] Engine finished. Generated ${recommendationResult.count} quotes.`);
     } catch (recommendationError) {
@@ -135,6 +141,10 @@ export async function POST(request: Request) {
 
   } catch (error: unknown) {
     console.error('Failed to process application:', error);
+
+    if (error instanceof Error && error.message === 'This email is already linked to another login account.') {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
 
     if (error instanceof NotFoundError) {
       return NextResponse.json({ error: error.message }, { status: 404 });

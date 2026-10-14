@@ -13,7 +13,15 @@ export default function DashboardPage() {
         let id = localStorage.getItem('application_id');
         if (!id) {
           const response = await fetch('/api/application/latest');
-          if (!response.ok) throw new Error('No application found');
+          if (response.status === 401) {
+            if (active) router.replace('/login?next=%2Fdashboard');
+            return;
+          }
+          if (response.status === 404) {
+            if (active) router.replace('/get-started');
+            return;
+          }
+          if (!response.ok) throw new Error('Could not load your application');
           const latest = await response.json() as { applicationId: string };
           id = latest.applicationId;
           localStorage.setItem('application_id', id);

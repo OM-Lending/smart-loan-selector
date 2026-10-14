@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock3, Info, LoaderCircle, RefreshCw } from 'lucide-react';
 
 type Quote = {
@@ -74,6 +74,7 @@ function QuoteCard({ quote }: { quote: Quote }) {
 
 export default function ApplicationRecommendationsPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -84,6 +85,7 @@ export default function ApplicationRecommendationsPage() {
       try {
         const response = await fetch(`/api/application/${id}/recommend`, { cache: 'no-store' });
         const body = await response.json() as Result;
+        if (response.status === 401) { router.replace(`/login?next=${encodeURIComponent(`/applications/${id}/recommendations`)}`); return; }
         if (!response.ok) throw new Error(body.error || 'Could not load recommendations.');
         if (active) setResult(body);
       } catch (cause) {
@@ -93,11 +95,11 @@ export default function ApplicationRecommendationsPage() {
       }
     })();
     return () => { active = false; };
-  }, [id]);
+  }, [id, router]);
 
   const recalculate = async () => {
     setRefreshing(true); setError('');
-    try { const response = await fetch(`/api/application/${id}/recommend`, { method: 'POST' }); const body = await response.json() as Result; if (!response.ok) throw new Error(body.error || 'Could not refresh recommendations.'); setResult(body); }
+    try { const response = await fetch(`/api/application/${id}/recommend`, { method: 'POST' }); const body = await response.json() as Result; if (response.status === 401) { router.replace(`/login?next=${encodeURIComponent(`/applications/${id}/recommendations`)}`); return; } if (!response.ok) throw new Error(body.error || 'Could not refresh recommendations.'); setResult(body); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not refresh recommendations.'); }
     finally { setRefreshing(false); }
   };

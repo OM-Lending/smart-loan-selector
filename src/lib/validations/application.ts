@@ -60,9 +60,10 @@ export const ApplicationSchema = z.object({
   hasCreditCard: z.boolean().nullable().optional(),
   creditCardLimit: emptyToUndefinedNumber,
   
-  firstName: z.string().min(2, 'First name must be at least 2 characters').optional(),
-  lastName: z.string().min(2, 'Last name must be at least 2 characters').optional(),
-  email: z.string().email('Invalid email address').optional()
+  firstName: z.string().trim().min(2, 'First name must be at least 2 characters'),
+  lastName: z.string().trim().min(2, 'Last name must be at least 2 characters'),
+  email: z.string().trim().email('Enter a valid email address'),
+  phone: z.string().trim().regex(/^4\d{8}$/, 'Enter a 9-digit Australian mobile number after +61')
 }).superRefine((data, context) => {
   if (!data.propertyUse) context.addIssue({ code: 'custom', path: ['propertyUse'], message: 'Choose how the property will be used' });
   if (data.goal === 'BUY') {

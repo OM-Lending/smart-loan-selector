@@ -4,6 +4,7 @@ import Footer from '@/components/layout/Footer';
 import './globals.css';
 import { Geist } from "next/font/google";
 import { cn } from "@/lib/utils";
+import { ClerkProvider } from '@clerk/nextjs';
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
@@ -20,9 +21,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={cn("h-full", "font-sans", geist.variable)}>
       <body className="flex min-h-full flex-col bg-slate-50 text-slate-900 antialiased">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <ClerkProvider>
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </ClerkProvider>
       </body>
     </html>
   );

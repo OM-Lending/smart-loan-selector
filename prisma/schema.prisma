@@ -107,6 +107,7 @@ enum PromotionQualificationStatus {
 // --------------------------------------------------------------------
 model Profile {
   id              String    @id @db.Uuid
+  clerkUserId     String?   @unique @map("clerk_user_id")
   email           String    @unique
   fullName        String?   @map("full_name")
   phone           String?
