@@ -43,7 +43,7 @@ export async function syncCdrProductsService() {
     const lender = await prisma.lender.upsert({
       where: { name: brandName },
       update: { logoUrl: typeof brand.logoUri === 'string' ? brand.logoUri : null, isActive: true, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 },
-      create: { name: brandName, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 },
+      create: { name: brandName, logoUrl: typeof brand.logoUri === 'string' ? brand.logoUri : null, category: isBig4 ? 'BIG_4' : 'NON_BANK', tier: isBig4 ? 1 : 2 },
     });
     const run = await prisma.lenderSyncRun.create({ data: { lenderId: lender.id, status: 'IN_PROGRESS' } });
     const stats = { productsSeen: 0, productsAdded: 0, productsDisabled: 0, ratesSeen: 0, ratesAdded: 0, ratesChanged: 0, ratesDisabled: 0 };

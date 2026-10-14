@@ -22,12 +22,13 @@ export async function GET(
     const run = await prisma.recommendationRun.findFirst({
       where: { applicationId: id, application: { userId: identity.profile.id } },
       orderBy: { createdAt: 'desc' },
-      include: { quotes: { orderBy: { rank: 'asc' } } },
+      include: { quotes: { orderBy: { rank: 'asc' }, include: { product: { select: { lender: { select: { logoUrl: true } } } } } } },
     });
     if (!run) return NextResponse.json({
       success: true,
       applicationId: id,
       recommendationStatus: 'PENDING',
+      applicationLvr: null,
       count: 0,
       quotes: [],
     });
@@ -42,6 +43,7 @@ export async function GET(
         productId: quote.productId,
         rateId: quote.rateId,
         lenderName: quote.lenderName,
+        lenderLogoUrl: quote.product.lender.logoUrl,
         productName: quote.productName,
         eligibility: {
           status: quote.eligibilityStatus,
@@ -81,12 +83,17 @@ export async function GET(
         sourceObservedAt: quote.sourceObservedAt.toISOString(),
       };
     });
+    const loanSnapshot = asRecord(asRecord(run.inputSnapshot).loan);
+    const applicationLvr = typeof loanSnapshot.lvr === 'string' || typeof loanSnapshot.lvr === 'number'
+      ? String(loanSnapshot.lvr)
+      : run.quotes[0]?.calculatedLvr?.toString() ?? null;
     return NextResponse.json({
       success: true,
       applicationId: id,
       recommendationRunId: run.id,
       runVersion: run.rulesVersion,
       recommendationStatus: run.status,
+      applicationLvr,
       count: quotes.length,
       quotes,
     });

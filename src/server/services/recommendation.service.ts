@@ -234,6 +234,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
       productId: result.candidate.productId,
       rateId: result.candidate.id,
       lenderName: result.candidate.product.lender.name,
+      lenderLogoUrl: result.candidate.product.lender.logoUrl,
       productName: result.candidate.product.productName,
       eligibility: {
         status: result.eligibility.status,
