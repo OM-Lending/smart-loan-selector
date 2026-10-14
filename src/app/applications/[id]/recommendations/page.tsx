@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '@clerk/nextjs';
 import Image from 'next/image';
 import { AlertCircle, CheckCircle2, Clock3, Info, LoaderCircle, RefreshCw, X } from 'lucide-react';
 
@@ -176,11 +177,17 @@ function QuoteCard({ quote }: { quote: Quote }) {
 export default function ApplicationRecommendationsPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
   const [result, setResult] = useState<Result | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
+    if (!authLoaded) return;
+    if (!isSignedIn) {
+      router.replace(`/login?next=${encodeURIComponent(`/applications/${id}/recommendations`)}`);
+      return;
+    }
     let active = true;
     void (async () => {
       try {
@@ -196,7 +203,7 @@ export default function ApplicationRecommendationsPage() {
       }
     })();
     return () => { active = false; };
-  }, [id, router]);
+  }, [authLoaded, id, isSignedIn, router]);
 
   const recalculate = async () => {
     setRefreshing(true); setError('');
