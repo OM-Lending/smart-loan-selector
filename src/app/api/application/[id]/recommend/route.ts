@@ -33,6 +33,15 @@ export async function GET(
       quotes: [],
     });
 
+    // Record presentation only after at least one completed recommendation is
+    // available, so unfinished/empty runs do not enter the follow-up queue.
+    if (run.status === 'COMPLETED' && run.quotes.length > 0) {
+      await prisma.application.updateMany({
+        where: { id, userId: identity.profile.id, recommendationPresentedAt: null },
+        data: { recommendationPresentedAt: new Date() },
+      });
+    }
+
     const quotes = run.quotes.map(quote => {
       const product = asRecord(quote.productSnapshot);
       const rate = asRecord(quote.rateSnapshot);

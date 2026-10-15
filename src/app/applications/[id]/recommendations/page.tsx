@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import { AlertCircle, CheckCircle2, Clock3, Info, LoaderCircle, RefreshCw, X } from 'lucide-react';
 
 type Quote = {
@@ -117,7 +118,7 @@ function BankLogo({ lenderName, logoUrl }: { lenderName: string; logoUrl?: strin
   </div>;
 }
 
-function QuoteDetailsDialog({ quote, onClose }: { quote: Quote; onClose: () => void }) {
+function QuoteDetailsDialog({ quote, onClose, continueHref }: { quote: Quote; onClose: () => void; continueHref: string }) {
   const fees = asList(quote.fees.items);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -142,12 +143,12 @@ function QuoteDetailsDialog({ quote, onClose }: { quote: Quote; onClose: () => v
         <section className="mt-6"><h3 className="text-base font-bold text-slate-900">Product fees <span className="text-sm font-normal text-slate-500">(reference only)</span></h3>{fees.length ? <ul className="mt-3 grid gap-2 sm:grid-cols-2">{fees.map((fee, index) => { const item = fee as Record<string, unknown>; return <li key={index} className="rounded-xl border border-slate-200 bg-white p-3 text-sm"><span className="font-semibold text-slate-800">{String(item.name ?? item.type ?? 'Fee')}</span><span className="ml-2 text-slate-600">{item.amount ? currency(String(item.amount)) : 'Amount not supplied'}</span></li>; })}</ul> : <p className="mt-2 text-sm text-slate-500">No fee data is available.</p>}<p className="mt-2 text-xs leading-5 text-slate-500">Fees are shown for reference and are excluded from comparison cost and ranking.</p></section>
         <p className="mt-6 flex items-center gap-1.5 text-xs text-slate-500"><Clock3 className="h-3.5 w-3.5" />Bank product data observed {new Date(quote.sourceObservedAt).toLocaleString('en-AU')}</p>
       </div>
-      <footer className="border-t border-slate-200 bg-white px-5 py-4 text-right sm:px-7"><button type="button" onClick={onClose} className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">Close details</button></footer>
+      <footer className="flex flex-wrap justify-end gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-7"><button type="button" onClick={onClose} className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">Close details</button><Link href={continueHref} className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary/90">Continue with this product</Link></footer>
     </section>
   </div>;
 }
 
-function QuoteCard({ quote }: { quote: Quote }) {
+function QuoteCard({ quote, applicationId }: { quote: Quote; applicationId: string }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const reasons = [...(quote.eligibility.reasons ?? []), ...(quote.eligibility.warnings ?? [])];
   const promotions = quote.promotions ?? [];
@@ -168,8 +169,9 @@ function QuoteCard({ quote }: { quote: Quote }) {
       <button type="button" aria-haspopup="dialog" onClick={() => setDetailsOpen(true)} className="mt-5 flex w-full items-center justify-center gap-2 border-t border-slate-100 pt-4 text-sm font-bold text-primary hover:text-primary/80">
         View product details <Info className="h-4 w-4" />
       </button>
+      <Link href={`/applications/${applicationId}/continue?quote=${quote.id}`} className="flex w-full items-center justify-center rounded-full bg-primary px-5 py-3 text-sm font-bold text-white hover:bg-primary/90">Continue with this product</Link>
     </div>
-    {detailsOpen && <QuoteDetailsDialog quote={quote} onClose={() => setDetailsOpen(false)} />}
+    {detailsOpen && <QuoteDetailsDialog quote={quote} onClose={() => setDetailsOpen(false)} continueHref={`/applications/${applicationId}/continue?quote=${quote.id}`} />}
   </article>;
 }
 
@@ -209,7 +211,7 @@ export default function ApplicationRecommendationsPage() {
   return <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6 lg:px-8"><div className="mx-auto max-w-6xl">
     <div className="mx-auto max-w-3xl text-center"><p className="text-sm font-bold uppercase tracking-widest text-primary">Your home loan matches</p><h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">Options based on your application</h1><p className="mt-4 text-slate-600">Compare estimated repayments, rates and product features. These are preliminary matches; lender policy and final approval need to be confirmed.</p></div>
     {error && <div role="alert" className="mx-auto mt-8 flex max-w-3xl items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertCircle className="h-5 w-5 shrink-0" />{error}</div>}
-    {loading ? <div className="flex justify-center py-20 text-slate-500"><LoaderCircle className="mr-2 h-5 w-5 animate-spin" />Loading your matches…</div> : waiting ? <section className="mx-auto mt-10 max-w-2xl rounded-2xl border bg-white p-8 text-center shadow-sm"><Clock3 className="mx-auto h-9 w-9 text-primary"/><h2 className="mt-4 text-xl font-bold">Your application is saved</h2><p className="mt-2 text-slate-600">Recommendations are not ready yet. Try again to run the matching process.</p><button onClick={recalculate} disabled={refreshing} className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-semibold text-white disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />{refreshing ? 'Checking…' : 'Get recommendations'}</button></section> : result && result.quotes.length ? <><div className="mt-9 flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-slate-800">Top {result.count} preliminary matches</p><p className="mt-1 text-sm text-slate-600">Ranked by known eligibility and estimated comparison cost.{result.applicationLvr && <> Application LVR: <span className="font-semibold tabular-nums">{Number(result.applicationLvr).toFixed(1)}%</span>.</>}</p></div><button onClick={recalculate} disabled={refreshing} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-primary/50 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />Refresh matches</button></div><div className="mt-4 grid gap-5 lg:grid-cols-2">{result.quotes.map(quote => <QuoteCard key={quote.id} quote={quote}/>)}</div></> : <section className="mx-auto mt-10 max-w-2xl rounded-2xl border bg-white p-8 text-center"><h2 className="text-xl font-bold">No matches yet</h2><p className="mt-2 text-slate-600">We could not find a current match for this application. You can retry after product data is updated.</p><button onClick={recalculate} disabled={refreshing} className="mt-5 rounded-full bg-primary px-5 py-3 font-semibold text-white">{refreshing ? 'Checking…' : 'Retry recommendations'}</button></section>}
+    {loading ? <div className="flex justify-center py-20 text-slate-500"><LoaderCircle className="mr-2 h-5 w-5 animate-spin" />Loading your matches…</div> : waiting ? <section className="mx-auto mt-10 max-w-2xl rounded-2xl border bg-white p-8 text-center shadow-sm"><Clock3 className="mx-auto h-9 w-9 text-primary"/><h2 className="mt-4 text-xl font-bold">Your application is saved</h2><p className="mt-2 text-slate-600">Recommendations are not ready yet. Try again to run the matching process.</p><button onClick={recalculate} disabled={refreshing} className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 font-semibold text-white disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />{refreshing ? 'Checking…' : 'Get recommendations'}</button></section> : result && result.quotes.length ? <><div className="mt-9 flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold text-slate-800">Top {result.count} preliminary matches</p><p className="mt-1 text-sm text-slate-600">Ranked by known eligibility and estimated comparison cost.{result.applicationLvr && <> Application LVR: <span className="font-semibold tabular-nums">{Number(result.applicationLvr).toFixed(1)}%</span>.</>}</p></div><button onClick={recalculate} disabled={refreshing} className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-primary/50 disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />Refresh matches</button></div><div className="mt-4 grid gap-5 lg:grid-cols-2">{result.quotes.map(quote => <QuoteCard key={quote.id} quote={quote} applicationId={id}/>)}</div></> : <section className="mx-auto mt-10 max-w-2xl rounded-2xl border bg-white p-8 text-center"><h2 className="text-xl font-bold">No matches yet</h2><p className="mt-2 text-slate-600">We could not find a current match for this application. You can retry after product data is updated.</p><button onClick={recalculate} disabled={refreshing} className="mt-5 rounded-full bg-primary px-5 py-3 font-semibold text-white">{refreshing ? 'Checking…' : 'Retry recommendations'}</button></section>}
     <p className="mx-auto mt-8 max-w-3xl text-center text-xs leading-5 text-slate-500">The monthly repayment is an estimate and does not subtract cashback. The 5-year comparison cost estimates interest using today&apos;s quoted rate held constant over the comparison period, excludes all product fees, and subtracts cashback when the configured conditions match. For preliminary comparison, the application date is assumed to be today; when settlement or drawdown timing is not provided, it is assumed to meet the offer limit. Cashback eligibility, payment and final loan approval are determined by the lender under its current policy and offer terms.</p>
   </div></main>;
 }
