@@ -17,6 +17,7 @@ type Application = {
   recommendationStatus: string;
   recommendationCreatedAt: string | null;
   recommendationCount: number;
+  continuation: { status: string; selectedQuote: { id: string; lenderName: string; productName: string } } | null;
 };
 
 type ApplicationListResponse = { success: boolean; applications: Application[]; error?: string };
@@ -88,8 +89,12 @@ export default function DashboardPage() {
             <h2 className="mt-3 text-lg font-bold text-slate-900">{application.propertyPostcode ? `Property postcode ${application.propertyPostcode}` : 'Home loan application'}</h2>
             <p className="mt-1 text-sm text-slate-500">Created {new Date(application.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
-          <Link href={`/applications/${application.id}/recommendations`} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-primary px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary hover:text-white">View matches <ArrowRight className="h-4 w-4" /></Link>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {application.continuation && <Link href={`/applications/${application.id}/continue`} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90">{application.continuation.status === 'SUBMITTED' ? 'View application' : 'Continue application'} <ArrowRight className="h-4 w-4" /></Link>}
+            <Link href={`/applications/${application.id}/recommendations`} className="inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/5">View matches <ArrowRight className="h-4 w-4" /></Link>
+          </div>
         </div>
+        {application.continuation && <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3"><p className="text-xs font-bold uppercase tracking-wide text-primary">Selected product for this application</p><p className="mt-1 text-sm font-semibold text-slate-900">{application.continuation.selectedQuote.lenderName} · {application.continuation.selectedQuote.productName}</p></div>}
         <dl className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">{applicationSummary(application).map(item => <div key={item.label}><dt className="text-xs font-medium text-slate-500">{item.label}</dt><dd className="mt-1 font-semibold tabular-nums text-slate-900">{item.value}</dd></div>)}</dl>
       </article>)}</div>}
     </div>

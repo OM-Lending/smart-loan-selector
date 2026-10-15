@@ -24,6 +24,12 @@ export async function GET() {
         orderBy: { createdAt: 'desc' },
         select: { status: true, createdAt: true, _count: { select: { quotes: true } } },
       },
+      continuation: {
+        select: {
+          status: true,
+          selectedQuote: { select: { id: true, lenderName: true, productName: true } },
+        },
+      },
     },
   });
 
@@ -41,6 +47,10 @@ export async function GET() {
       recommendationStatus: application.recommendationRuns[0]?.status ?? 'PENDING',
       recommendationCreatedAt: application.recommendationRuns[0]?.createdAt.toISOString() ?? null,
       recommendationCount: application.recommendationRuns[0]?._count.quotes ?? 0,
+      continuation: application.continuation ? {
+        status: application.continuation.status,
+        selectedQuote: application.continuation.selectedQuote,
+      } : null,
     })),
   });
 }

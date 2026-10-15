@@ -19,6 +19,17 @@ export async function GET(
     if (!identity.profile) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
 
     const { id } = ParamsSchema.parse(await context.params);
+    const application = await prisma.application.findFirst({
+      where: { id, userId: identity.profile.id },
+      select: { continuation: { select: { status: true, selectedQuote: { select: { id: true, lenderName: true, productName: true } } } } },
+    });
+    if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
+    const selectedProduct = application.continuation ? {
+      quoteId: application.continuation.selectedQuote.id,
+      status: application.continuation.status,
+      lenderName: application.continuation.selectedQuote.lenderName,
+      productName: application.continuation.selectedQuote.productName,
+    } : null;
     const run = await prisma.recommendationRun.findFirst({
       where: { applicationId: id, application: { userId: identity.profile.id } },
       orderBy: { createdAt: 'desc' },
@@ -27,6 +38,7 @@ export async function GET(
     if (!run) return NextResponse.json({
       success: true,
       applicationId: id,
+      selectedProduct,
       recommendationStatus: 'PENDING',
       applicationLvr: null,
       count: 0,
@@ -99,6 +111,7 @@ export async function GET(
     return NextResponse.json({
       success: true,
       applicationId: id,
+      selectedProduct,
       recommendationRunId: run.id,
       runVersion: run.rulesVersion,
       recommendationStatus: run.status,
@@ -130,9 +143,21 @@ export async function POST(
     console.log(`[API] Triggering recommendation for Application ID: ${id}`);
 
     const result = await generateRecommendations({ applicationId: id, userId: identity.profile.id });
+    const continuation = await prisma.applicationContinuation.findUnique({
+      where: { applicationId: id },
+      select: { status: true, selectedQuote: { select: { id: true, lenderName: true, productName: true } } },
+    });
     console.log(`[API] Recommendation Success. Returned ${result.count} quotes.`);
-    
-    return NextResponse.json(result);
+
+    return NextResponse.json({
+      ...result,
+      selectedProduct: continuation ? {
+        quoteId: continuation.selectedQuote.id,
+        status: continuation.status,
+        lenderName: continuation.selectedQuote.lenderName,
+        productName: continuation.selectedQuote.productName,
+      } : null,
+    });
 
   } catch (error: unknown) {
     console.error('Recommendation Engine Error:', error);
