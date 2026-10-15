@@ -13,7 +13,6 @@ type Application = {
   propertyValue: string | null;
   currentLoanBalance: string | null;
   propertyPostcode: string | null;
-  currentStage: string;
   createdAt: string;
   recommendationStatus: string;
   recommendationCreatedAt: string | null;
@@ -87,7 +86,7 @@ export default function DashboardPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">{application.goal === 'BUY' ? 'Buying a home' : application.goal === 'REFINANCE' ? 'Refinancing' : application.goal}</span><span className="inline-flex items-center gap-1.5 text-sm text-slate-600"><Sparkles className="h-4 w-4 text-primary" />{recommendationLabel(application)}</span></div>
             <h2 className="mt-3 text-lg font-bold text-slate-900">{application.propertyPostcode ? `Property postcode ${application.propertyPostcode}` : 'Home loan application'}</h2>
-            <p className="mt-1 text-sm text-slate-500">Created {new Date(application.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}{application.currentStage ? ` · ${application.currentStage.replaceAll('_', ' ').toLowerCase()}` : ''}</p>
+            <p className="mt-1 text-sm text-slate-500">Created {new Date(application.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
           <Link href={`/applications/${application.id}/recommendations`} className="inline-flex shrink-0 items-center gap-2 rounded-full border border-primary px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary hover:text-white">View matches <ArrowRight className="h-4 w-4" /></Link>
         </div>

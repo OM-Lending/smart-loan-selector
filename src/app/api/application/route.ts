@@ -18,7 +18,6 @@ export async function GET() {
       propertyValue: true,
       currentLoanBalance: true,
       propertyPostcode: true,
-      currentStage: true,
       createdAt: true,
       recommendationRuns: {
         take: 1,
@@ -38,7 +37,6 @@ export async function GET() {
       propertyValue: application.propertyValue?.toString() ?? null,
       currentLoanBalance: application.currentLoanBalance?.toString() ?? null,
       propertyPostcode: application.propertyPostcode,
-      currentStage: application.currentStage,
       createdAt: application.createdAt.toISOString(),
       recommendationStatus: application.recommendationRuns[0]?.status ?? 'PENDING',
       recommendationCreatedAt: application.recommendationRuns[0]?.createdAt.toISOString() ?? null,

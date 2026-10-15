@@ -28,6 +28,11 @@ enum ApplicationStage {
   SETTLED
 }
 
+enum ApplicationContinuationStatus {
+  DRAFT
+  SUBMITTED
+}
+
 enum LenderCategory {
   BIG_4
   NON_BANK
@@ -71,6 +76,11 @@ enum QuoteEligibilityStatus {
   ELIGIBLE
   REVIEW_REQUIRED
   INELIGIBLE
+}
+
+enum AdminMatchReviewDecision {
+  APPROVED
+  REJECTED
 }
 
 enum PromotionSourceChangeType {
@@ -120,6 +130,7 @@ model Profile {
   updatedAt DateTime  @updatedAt @map("updated_at")
 
   applications Application[]
+  matchReviews AdminMatchReview[]
 
   @@map("profiles")
 }
@@ -429,12 +440,15 @@ model Application {
   promotionAnswers           Json     @default("{}") @map("promotion_answers")
 
   currentStage ApplicationStage @default(LEAD_CAPTURED) @map("current_stage")
+  recommendationPresentedAt DateTime? @map("recommendation_presented_at")
+  applyClickedAt            DateTime? @map("apply_clicked_at")
   createdAt    DateTime         @default(now()) @map("created_at")
   updatedAt    DateTime         @updatedAt @map("updated_at")
 
   user               Profile             @relation(fields: [userId], references: [id], onDelete: Restrict)
   recommendationRuns RecommendationRun[]
   quotes             ApplicationQuote[]
+  continuation       ApplicationContinuation?
 
   @@map("applications")
 }
@@ -497,8 +511,60 @@ model ApplicationQuote {
   product           LoanProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
   rate              LoanRate?         @relation(fields: [rateId], references: [id], onDelete: Restrict)
   sourceSyncRun     LenderSyncRun     @relation(fields: [sourceSyncRunId], references: [id], onDelete: Restrict)
+  adminReviews      AdminMatchReview[]
+  selectedForContinuation ApplicationContinuation? @relation("ContinuationQuote")
 
   @@index([applicationId])
   @@index([recommendationRunId])
   @@map("application_quotes")
+}
+
+model ApplicationContinuation {
+  id                String                        @id @default(uuid()) @db.Uuid
+  applicationId     String                        @unique @map("application_id") @db.Uuid
+  selectedQuoteId   String                        @unique @map("selected_quote_id") @db.Uuid
+  status            ApplicationContinuationStatus @default(DRAFT)
+  details           Json                          @default("{}")
+  startedAt         DateTime                      @default(now()) @map("started_at")
+  submittedAt       DateTime?                     @map("submitted_at")
+  updatedAt         DateTime                      @updatedAt @map("updated_at")
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  selectedQuote ApplicationQuote @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
+  documents ApplicationDocument[]
+
+  @@index([selectedQuoteId])
+  @@map("application_continuations")
+}
+
+model ApplicationDocument {
+  id             String   @id @default(uuid()) @db.Uuid
+  continuationId String   @map("continuation_id") @db.Uuid
+  category       String   @db.VarChar(60)
+  fileName       String   @map("file_name") @db.VarChar(255)
+  contentType    String   @map("content_type") @db.VarChar(100)
+  sizeBytes      Int      @map("size_bytes")
+  storagePath    String   @unique @map("storage_path") @db.VarChar(500)
+  uploadedAt     DateTime @default(now()) @map("uploaded_at")
+
+  continuation ApplicationContinuation @relation(fields: [continuationId], references: [id], onDelete: Restrict)
+
+  @@index([continuationId, category])
+  @@map("application_documents")
+}
+
+model AdminMatchReview {
+  id                String                    @id @default(uuid()) @db.Uuid
+  quoteId           String                    @map("quote_id") @db.Uuid
+  reviewerProfileId String                    @map("reviewer_profile_id") @db.Uuid
+  decision          AdminMatchReviewDecision
+  note              String?                   @db.VarChar(2000)
+  createdAt         DateTime                  @default(now()) @map("created_at")
+
+  quote    ApplicationQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  reviewer Profile          @relation(fields: [reviewerProfileId], references: [id], onDelete: Restrict)
+
+  @@index([quoteId, createdAt])
+  @@index([reviewerProfileId, createdAt])
+  @@map("admin_match_reviews")
 }

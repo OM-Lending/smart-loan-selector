@@ -3,19 +3,37 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { PhoneCall, UserRound, ChevronDown, LogOut, LayoutDashboard } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { PhoneCall, UserRound, ChevronDown, LogOut, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useClerk, useUser } from '@clerk/nextjs';
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [roleState, setRoleState] = useState<{ userId: string; role: string | null } | null>(null);
   const router = useRouter();
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
   const email = user?.primaryEmailAddress?.emailAddress;
   const name = user?.fullName || user?.firstName || email;
   const avatar = user?.imageUrl;
+  const isAdmin = Boolean(user && roleState?.userId === user.id && roleState.role === 'ADMIN');
+
+  useEffect(() => {
+    if (!isLoaded || !user) return;
+    let active = true;
+    void (async () => {
+      try {
+        const response = await fetch('/api/account/role', { cache: 'no-store' });
+        if (!response.ok) return;
+        const body = await response.json() as { role?: string | null };
+        if (active) setRoleState({ userId: user.id, role: body.role ?? null });
+      } catch {
+        // The menu is navigation only; server-side authorization remains authoritative.
+      }
+    })();
+    return () => { active = false; };
+  }, [isLoaded, user]);
 
   const initials = (name || 'U').trim().charAt(0).toUpperCase();
 
@@ -39,7 +57,10 @@ export default function Header() {
               </button>
               {menuOpen && <div className="absolute right-0 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
                 <div className="border-b px-3 py-2"><p className="truncate text-sm font-semibold text-slate-900">{name || 'Your account'}</p><p className="truncate text-xs text-slate-500">{email}</p></div>
-                <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><LayoutDashboard className="h-4 w-4" /> Dashboard</Link>
+                {isAdmin ? <>
+                  <Link href="/admin/dashboard" onClick={() => setMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><ShieldCheck className="h-4 w-4" /> Admin dashboard</Link>
+                  <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><LayoutDashboard className="h-4 w-4" /> Customer dashboard</Link>
+                </> : <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><LayoutDashboard className="h-4 w-4" /> Dashboard</Link>}
                 <button type="button" onClick={async () => { setMenuOpen(false); await signOut(() => router.push('/')); router.refresh(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><LogOut className="h-4 w-4" /> Sign out</button>
               </div>}
             </div>
