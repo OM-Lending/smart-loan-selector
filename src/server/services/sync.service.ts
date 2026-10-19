@@ -134,31 +134,56 @@ export async function syncCdrProductsService() {
             if (normalizedProduct.constraints.length) await tx.loanProductConstraint.createMany({ data: normalizedProduct.constraints.map(c => ({ ...c, productId: productData.id })) });
             await tx.loanProductFee.deleteMany({ where: { productId: productData.id } });
             if (normalizedProduct.fees.length) await tx.loanProductFee.createMany({ data: normalizedProduct.fees.map(f => ({ ...f, productId: productData.id })) });
+          });
 
-            const observedIds: string[] = [];
-            for (const rate of normalizedProduct.rates) {
-              stats.ratesSeen++;
-              const prev = await tx.loanRate.findUnique({ where: { productId_conditionHash: { productId: productData.id, conditionHash: rate.conditionHash } } });
-              const changed = !prev || contentHash({ rate: prev.interestRate.toFixed(4), minAmount: prev.minAmount?.toFixed(2), maxAmount: prev.maxAmount?.toFixed(2), minLvr: prev.minLvr?.toFixed(2), maxLvr: prev.maxLvr?.toFixed(2), conditions: prev.rateConditions }) !== contentHash({ rate: rate.interestRate, minAmount: rate.minAmount, maxAmount: rate.maxAmount, minLvr: rate.minLvr, maxLvr: rate.maxLvr, conditions: rate.rateConditions });
-              if (!prev) stats.ratesAdded++;
-              else if (changed) stats.ratesChanged++;
-              const saved = await tx.loanRate.upsert({
-                where: { productId_conditionHash: { productId: productData.id, conditionHash: rate.conditionHash } },
-                update: { ...rate, isActive: true, lastObservedAt: new Date(), lastSyncRunId: run.id },
-                create: { productId: productData.id, ...rate, lastObservedAt: new Date(), lastSyncRunId: run.id },
-              });
-              observedIds.push(saved.id);
-              if (changed) await tx.loanRateHistory.create({ data: {
-                productId: productData.id, syncRunId: run.id, rateType: rate.rateType, repaymentType: rate.repaymentType,
-                loanPurpose: rate.loanPurpose, interestRate: rate.interestRate,
-                contentHash: contentHash({ conditionHash: rate.conditionHash, interestRate: rate.interestRate }),
-              } });
-            }
-            if (validation.ratesSafeToReconcile) {
-              const deactivated = await tx.loanRate.updateMany({ where: { productId: productData.id, isActive: true, id: { notIn: observedIds } }, data: { isActive: false } });
-              stats.ratesDisabled += deactivated.count;
-            }
-          }, { maxWait: 10_000, timeout: 30_000 });
+          // Read the existing rates once, then upsert in bounded transactions.
+          // A large product can have hundreds of rates; processing each rate
+          // and its history row in one interactive transaction can exceed the
+          // database transaction timeout.
+          const existingRates = await prisma.loanRate.findMany({
+            where: { productId: productData.id },
+            select: { id: true, conditionHash: true, interestRate: true, minAmount: true, maxAmount: true, minLvr: true, maxLvr: true, rateConditions: true },
+          });
+          const existingRatesByHash = new Map(existingRates.map(rate => [rate.conditionHash, rate]));
+          const observedIds: string[] = [];
+          const rateBatchSize = 40;
+
+          for (let start = 0; start < normalizedProduct.rates.length; start += rateBatchSize) {
+            const rateBatch = normalizedProduct.rates.slice(start, start + rateBatchSize);
+            await prisma.$transaction(async tx => {
+              const historyRows = [];
+              for (const rate of rateBatch) {
+                stats.ratesSeen++;
+                const prev = existingRatesByHash.get(rate.conditionHash);
+                const changed = !prev || contentHash({
+                  rate: prev.interestRate.toFixed(4), minAmount: prev.minAmount?.toFixed(2), maxAmount: prev.maxAmount?.toFixed(2),
+                  minLvr: prev.minLvr?.toFixed(2), maxLvr: prev.maxLvr?.toFixed(2), conditions: prev.rateConditions,
+                }) !== contentHash({
+                  rate: rate.interestRate, minAmount: rate.minAmount, maxAmount: rate.maxAmount,
+                  minLvr: rate.minLvr, maxLvr: rate.maxLvr, conditions: rate.rateConditions,
+                });
+                if (!prev) stats.ratesAdded++;
+                else if (changed) stats.ratesChanged++;
+                const saved = await tx.loanRate.upsert({
+                  where: { productId_conditionHash: { productId: productData.id, conditionHash: rate.conditionHash } },
+                  update: { ...rate, isActive: true, lastObservedAt: new Date(), lastSyncRunId: run.id },
+                  create: { productId: productData.id, ...rate, lastObservedAt: new Date(), lastSyncRunId: run.id },
+                });
+                observedIds.push(saved.id);
+                if (changed) historyRows.push({
+                  productId: productData.id, syncRunId: run.id, rateType: rate.rateType, repaymentType: rate.repaymentType,
+                  loanPurpose: rate.loanPurpose, interestRate: rate.interestRate,
+                  contentHash: contentHash({ conditionHash: rate.conditionHash, interestRate: rate.interestRate }),
+                });
+              }
+              if (historyRows.length) await tx.loanRateHistory.createMany({ data: historyRows });
+            }, { maxWait: 10_000, timeout: 30_000 });
+          }
+
+          if (validation.ratesSafeToReconcile) {
+            const deactivated = await prisma.loanRate.updateMany({ where: { productId: productData.id, isActive: true, id: { notIn: observedIds } }, data: { isActive: false } });
+            stats.ratesDisabled += deactivated.count;
+          }
           totalUpdated++;
         } catch (error: unknown) {
           productFailures++;
