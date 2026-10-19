@@ -1,0 +1,53 @@
+name: Daily CDR product sync
+
+on:
+  schedule:
+    # GitHub Actions uses UTC. Run off the hour to reduce scheduling delays.
+    - cron: '17 16 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cdr-product-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+    steps:
+      - name: Check database secret is configured
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Missing repository secret: PRODUCTION_DATABASE_URL"
+            exit 1
+          fi
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.25.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm exec prisma generate
+
+      - name: Sync CDR products
+        run: pnpm sync:cdr
+        env:
+          NODE_OPTIONS: --conditions=react-server
