@@ -8,7 +8,7 @@ import { reconcilePromotionSourceSnapshots } from '@/server/services/promotions/
 const TARGET_BANKS = [
   'Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank', 'Macquarie', 'ING',
   'Bendigo', 'Bank of Queensland', 'BOQ', 'Bankwest', 'St.George', 'St George',
-  'Citi', 'AMP', 'Qudos', 'Bank of China', 'BOC', 'La Trobe', 'Pepper', 'Think Tank', 'Brighten'
+  'Citi', 'AMP - My AMP', 'Qudos', 'Bank of China', 'BOC', 'La Trobe', 'Pepper', 'Think Tank', 'Brighten'
 ];
 const BIG_4_NAMES = ['Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank'];
 function normalizeBrandName(name: string) {
@@ -20,8 +20,13 @@ function matchesTargetBank(brandName: string) {
   return TARGET_BANKS.some(target => normalizedName.includes(` ${normalizeBrandName(target)} `));
 }
 
+function buildCdrUrl(baseUri: string, path: string): string {
+  const normalizedBase = baseUri.endsWith('/') ? baseUri : `${baseUri}/`;
+  return new URL(path.replace(/^\/+/, ''), normalizedBase).toString();
+}
+
 async function fetchAllProductSummaries(baseUri: string): Promise<CdrObject[]> {
-  let nextUrl: string | null = new URL('/cds-au/v1/banking/products', baseUri).toString();
+  let nextUrl: string | null = buildCdrUrl(baseUri, 'cds-au/v1/banking/products');
   const seenUrls = new Set<string>();
   const products: CdrObject[] = [];
   while (nextUrl) {
@@ -65,6 +70,9 @@ export async function syncCdrProductsService() {
     let complete = false;
     try {
       const products = (await fetchAllProductSummaries(publicBaseUri)).filter(p => p.productCategory === 'RESIDENTIAL_MORTGAGES');
+      if (products.length === 0) {
+        throw new Error('CDR returned no residential mortgage products; refusing to deactivate existing products.');
+      }
       const seenProductIds: string[] = [];
 
       for (const listed of products) {
@@ -73,7 +81,7 @@ export async function syncCdrProductsService() {
           await delay(250);
           const listedProductId = typeof listed.productId === 'string' ? listed.productId : '';
           if (!listedProductId) throw new Error('Product list entry has no productId');
-          const detailUrl = new URL(`/cds-au/v1/banking/products/${encodeURIComponent(listedProductId)}`, publicBaseUri).toString();
+          const detailUrl = buildCdrUrl(publicBaseUri, `cds-au/v1/banking/products/${encodeURIComponent(listedProductId)}`);
           const response = asCdrObject(await fetchCDR(detailUrl, { 'x-v': '100', 'x-min-v': '1' }));
           const rawProduct = asCdrObject(response.data);
           const normalizedProduct = normalizeCdrProduct(rawProduct);
@@ -149,7 +157,7 @@ export async function syncCdrProductsService() {
               const deactivated = await tx.loanRate.updateMany({ where: { productId: productData.id, isActive: true, id: { notIn: observedIds } }, data: { isActive: false } });
               stats.ratesDisabled += deactivated.count;
             }
-          });
+          }, { maxWait: 10_000, timeout: 30_000 });
           totalUpdated++;
         } catch (error: unknown) {
           productFailures++;

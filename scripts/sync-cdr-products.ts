@@ -43,9 +43,23 @@ async function main() {
       throw new Error('The sync completed without creating any lender sync run records.');
     }
 
-    const unsuccessfulRuns = runs.filter(run => run.status !== 'SUCCESS');
+    const warningOnlyRuns = runs.filter(run => {
+      if (run.status !== 'PARTIAL') return false;
+      const failedProducts = run.errorMessage?.match(/^(\d+) product\(s\) failed;/);
+      return failedProducts !== null && failedProducts !== undefined && Number(failedProducts[1]) === 0;
+    });
+    for (const run of warningOnlyRuns) {
+      console.log(`::warning::${run.lender.name}: products were saved with parsing warnings; see the lender sync details.`);
+    }
+
+    const unsuccessfulRuns = runs.filter(run => {
+      if (run.status === 'FAILED') return true;
+      if (run.status !== 'PARTIAL') return false;
+      const failedProducts = run.errorMessage?.match(/^(\d+) product\(s\) failed;/);
+      return failedProducts === null || failedProducts === undefined || Number(failedProducts[1]) > 0;
+    });
     if (unsuccessfulRuns.length > 0) {
-      throw new Error(`${unsuccessfulRuns.length} lender sync run(s) were not successful.`);
+      throw new Error(`${unsuccessfulRuns.length} lender sync run(s) had failed requests or product writes.`);
     }
   } finally {
     await prisma.$disconnect();
