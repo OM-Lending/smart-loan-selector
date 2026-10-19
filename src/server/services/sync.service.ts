@@ -67,6 +67,7 @@ export async function syncCdrProductsService() {
     const stats = { productsSeen: 0, productsAdded: 0, productsDisabled: 0, ratesSeen: 0, ratesAdded: 0, ratesChanged: 0, ratesDisabled: 0 };
     let productFailures = 0;
     let productsWithWarnings = 0;
+    const productFailureDetails: string[] = [];
     let complete = false;
     try {
       const products = (await fetchAllProductSummaries(publicBaseUri)).filter(p => p.productCategory === 'RESIDENTIAL_MORTGAGES');
@@ -161,6 +162,9 @@ export async function syncCdrProductsService() {
           totalUpdated++;
         } catch (error: unknown) {
           productFailures++;
+          const productId = typeof listed.productId === 'string' ? listed.productId : '(unknown product)';
+          const message = error instanceof Error ? error.message : String(error);
+          productFailureDetails.push(`${productId}: ${message}`);
           console.error(`Failed to sync product ${listed.productId}`, error);
         }
       }
@@ -172,7 +176,8 @@ export async function syncCdrProductsService() {
       }
       await prisma.lenderSyncRun.update({ where: { id: run.id }, data: {
         status: complete ? 'SUCCESS' : 'PARTIAL', completedAt: new Date(),
-        errorMessage: complete ? null : `${productFailures} product(s) failed; ${productsWithWarnings} product(s) had parsing warnings. Missing-product deactivation skipped.`, ...stats,
+        errorMessage: complete ? null : `${productFailures} product(s) failed; ${productsWithWarnings} product(s) had parsing warnings. Missing-product deactivation skipped.${productFailureDetails.length ? ` Failure details: ${productFailureDetails.slice(0, 10).join(' | ').slice(0, 3_000)}` : ''}`,
+        ...stats,
       } });
     } catch (error: unknown) {
       await prisma.lenderSyncRun.update({ where: { id: run.id }, data: { status: 'FAILED', completedAt: new Date(), errorMessage: error instanceof Error ? error.message : String(error), ...stats } });
