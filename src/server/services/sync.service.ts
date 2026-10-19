@@ -11,6 +11,15 @@ const TARGET_BANKS = [
   'Citi', 'AMP', 'Qudos', 'Bank of China', 'BOC', 'La Trobe', 'Pepper', 'Think Tank', 'Brighten'
 ];
 const BIG_4_NAMES = ['Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank'];
+function normalizeBrandName(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function matchesTargetBank(brandName: string) {
+  const normalizedName = ` ${normalizeBrandName(brandName)} `;
+  return TARGET_BANKS.some(target => normalizedName.includes(` ${normalizeBrandName(target)} `));
+}
+
 async function fetchAllProductSummaries(baseUri: string): Promise<CdrObject[]> {
   let nextUrl: string | null = new URL('/cds-au/v1/banking/products', baseUri).toString();
   const seenUrls = new Set<string>();
@@ -21,7 +30,11 @@ async function fetchAllProductSummaries(baseUri: string): Promise<CdrObject[]> {
     seenUrls.add(nextUrl);
     const response = asCdrObject(await fetchCDR(nextUrl, { 'x-v': '100', 'x-min-v': '1' }));
     const data = asCdrObject(response.data);
-    if (!Array.isArray(data.products)) throw new Error(`CDR product page ${seenUrls.size} was incomplete`);
+    if (!Array.isArray(data.products)) {
+      const responseKeys = Object.keys(response).join(', ') || '(none)';
+      const dataKeys = Object.keys(data).join(', ') || '(none)';
+      throw new Error(`CDR product page ${seenUrls.size} was incomplete (response keys: ${responseKeys}; data keys: ${dataKeys})`);
+    }
     products.push(...asCdrArray(data.products));
     const link = asCdrObject(response.links).next;
     nextUrl = typeof link === 'string' && link.length > 0 ? new URL(link, nextUrl).toString() : null;
@@ -32,7 +45,7 @@ async function fetchAllProductSummaries(baseUri: string): Promise<CdrObject[]> {
 export async function syncCdrProductsService() {
   const summaryData = await fetchCDR('https://api.cdr.gov.au/cdr-register/v1/banking/data-holders/brands/summary', { 'x-v': '1' });
   if (!summaryData?.data) throw new Error('Failed to fetch CDR brands');
-  const targetBrands = asCdrArray(summaryData.data).filter(brand => typeof brand.brandName === 'string' && TARGET_BANKS.some(target => (brand.brandName as string).toLowerCase().includes(target.toLowerCase())));
+  const targetBrands = asCdrArray(summaryData.data).filter(brand => typeof brand.brandName === 'string' && matchesTargetBank(brand.brandName));
   let totalUpdated = 0;
 
   for (const brand of targetBrands) {
@@ -47,7 +60,8 @@ export async function syncCdrProductsService() {
     });
     const run = await prisma.lenderSyncRun.create({ data: { lenderId: lender.id, status: 'IN_PROGRESS' } });
     const stats = { productsSeen: 0, productsAdded: 0, productsDisabled: 0, ratesSeen: 0, ratesAdded: 0, ratesChanged: 0, ratesDisabled: 0 };
-    let errors = 0;
+    let productFailures = 0;
+    let productsWithWarnings = 0;
     let complete = false;
     try {
       const products = (await fetchAllProductSummaries(publicBaseUri)).filter(p => p.productCategory === 'RESIDENTIAL_MORTGAGES');
@@ -66,7 +80,7 @@ export async function syncCdrProductsService() {
           const validation = validateNormalizedProduct(normalizedProduct);
           if (validation.errors.length) throw new Error(validation.errors.join('; '));
           if (validation.warnings.length) {
-            errors++;
+            productsWithWarnings++;
             console.warn(`Partial CDR normalization for ${listedProductId}:`, validation.warnings);
           }
           const productId = normalizedProduct.externalId;
@@ -138,11 +152,11 @@ export async function syncCdrProductsService() {
           });
           totalUpdated++;
         } catch (error: unknown) {
-          errors++;
+          productFailures++;
           console.error(`Failed to sync product ${listed.productId}`, error);
         }
       }
-      complete = errors === 0;
+      complete = productFailures === 0 && productsWithWarnings === 0;
       // Do not deactivate absent products after any partial/failed detail response.
       if (complete) {
         const deactivated = await prisma.loanProduct.updateMany({ where: { lenderId: lender.id, isActive: true, id: { notIn: seenProductIds } }, data: { isActive: false } });
@@ -150,7 +164,7 @@ export async function syncCdrProductsService() {
       }
       await prisma.lenderSyncRun.update({ where: { id: run.id }, data: {
         status: complete ? 'SUCCESS' : 'PARTIAL', completedAt: new Date(),
-        errorMessage: errors ? `${errors} product(s) had incomplete data or failed detail retrieval; missing-product deactivation skipped.` : null, ...stats,
+        errorMessage: complete ? null : `${productFailures} product(s) failed; ${productsWithWarnings} product(s) had parsing warnings. Missing-product deactivation skipped.`, ...stats,
       } });
     } catch (error: unknown) {
       await prisma.lenderSyncRun.update({ where: { id: run.id }, data: { status: 'FAILED', completedAt: new Date(), errorMessage: error instanceof Error ? error.message : String(error), ...stats } });
