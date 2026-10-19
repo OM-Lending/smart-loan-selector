@@ -10,11 +10,12 @@ import {
 } from '@/server/services/recommendation.service';
 
 export async function POST(request: Request) {
+  const requestId = randomUUID();
   try {
     const identity = await getAuthenticatedProfile();
     if (!identity) {
       return NextResponse.json(
-        { error: 'Unauthorized - Invalid or missing session' }, 
+        { error: 'Unauthorized - Invalid or missing session', diagnostic: { code: 'CLERK_SESSION_NOT_READY', stage: 'auth_session', requestId } },
         { status: 401 }
       );
     }
@@ -37,7 +38,14 @@ export async function POST(request: Request) {
     const normalizedEmail = validData.email.trim().toLowerCase();
     if (!identity.emailVerified || identity.email !== normalizedEmail) {
       return NextResponse.json(
-        { error: 'Verify the same email address before saving your application.' },
+        {
+          error: 'Verify the same email address before saving your application.',
+          diagnostic: {
+            code: identity.emailVerified ? 'VERIFIED_EMAIL_MISMATCH' : 'EMAIL_NOT_VERIFIED',
+            stage: 'email_verification',
+            requestId,
+          },
+        },
         { status: 403 }
       );
     }
@@ -140,7 +148,7 @@ export async function POST(request: Request) {
     }, { status: 201 });
 
   } catch (error: unknown) {
-    console.error('Failed to process application:', error);
+    console.error(`[Create API] Failed to process application (${requestId}):`, error);
 
     if (error instanceof Error && error.message === 'This email is already linked to another login account.') {
       return NextResponse.json({ error: error.message }, { status: 409 });
@@ -154,7 +162,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { error: 'Internal Server Error' }, 
+      { error: 'Could not save your application. Please retry; your questionnaire details are still available in this browser.', diagnostic: { code: 'APPLICATION_SAVE_FAILED', stage: 'database_transaction', requestId } },
       { status: 500 }
     );
   }
