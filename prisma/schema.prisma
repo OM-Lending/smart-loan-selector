@@ -248,7 +248,7 @@ model LoanProductConstraint {
   id             String          @id @default(uuid()) @db.Uuid
   productId      String          @map("product_id") @db.Uuid
   constraintType String          @map("constraint_type")
-  numericValue   Decimal?        @map("numeric_value") @db.Decimal(12, 4)
+  numericValue   Decimal?        @map("numeric_value") @db.Decimal(18, 4)
   unit           String?
   applicability  Json            @default("{}")
   parseStatus    RuleParseStatus @default(UNPARSED) @map("parse_status")
