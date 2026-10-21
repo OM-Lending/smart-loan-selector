@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PhoneCall, UserRound, ChevronDown, LogOut, LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useClerk, useUser } from '@clerk/nextjs';
+import { clearAppBrowserStorage } from '@/lib/clear-app-browser-storage';
 
 export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -14,10 +15,27 @@ export default function Header() {
   const router = useRouter();
   const { user, isLoaded } = useUser();
   const { signOut } = useClerk();
+  const previousUserId = useRef<string | null>(null);
   const email = user?.primaryEmailAddress?.emailAddress;
   const name = user?.fullName || user?.firstName || email;
   const avatar = user?.imageUrl;
   const isAdmin = Boolean(user && roleState?.userId === user.id && roleState.role === 'ADMIN');
+
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const currentUserId = user?.id ?? null;
+    const previousId = previousUserId.current;
+
+    // Preserve the questionnaire when a new user completes signup (null -> id).
+    // Clear cached application data when an authenticated account changes or ends.
+    if (previousId && previousId !== currentUserId) {
+      clearAppBrowserStorage();
+      setRoleState(null);
+    }
+
+    previousUserId.current = currentUserId;
+  }, [isLoaded, user?.id]);
 
   useEffect(() => {
     if (!isLoaded || !user) return;
@@ -61,7 +79,7 @@ export default function Header() {
                   <Link href="/admin/dashboard" onClick={() => setMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><ShieldCheck className="h-4 w-4" /> Admin dashboard</Link>
                   <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><LayoutDashboard className="h-4 w-4" /> Customer dashboard</Link>
                 </> : <Link href="/dashboard" onClick={() => setMenuOpen(false)} className="mt-1 flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><LayoutDashboard className="h-4 w-4" /> Dashboard</Link>}
-                <button type="button" onClick={async () => { setMenuOpen(false); await signOut(() => router.push('/')); router.refresh(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><LogOut className="h-4 w-4" /> Sign out</button>
+                <button type="button" onClick={async () => { setMenuOpen(false); clearAppBrowserStorage(); await signOut(() => router.push('/')); router.refresh(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"><LogOut className="h-4 w-4" /> Sign out</button>
               </div>}
             </div>
           ) : isLoaded ? (
