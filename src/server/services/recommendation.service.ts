@@ -8,7 +8,7 @@ export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
 
 const RULES_VERSION = 'mortgage-v2.0.0';
-const ENGINE_VERSION = 'recommendation-engine-v8';
+const ENGINE_VERSION = 'recommendation-engine-v9';
 const COMPARISON_HORIZON_MONTHS = 60;
 const D = (value: unknown) => new Decimal(value === null || value === undefined ? 0 : String(value));
 // Older database rows were persisted directly from CDR RateString (ratio
@@ -113,7 +113,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
       },
       loanPurpose: { in: [targetPurpose, 'ALL'] },
       lastSyncRunId: { not: null },
-      product: { isActive: true, lender: { isActive: true } },
+      product: { isActive: true, recommendationStatus: 'INCLUDED', lender: { isActive: true } },
     },
     include: { product: { include: {
       lender: true,

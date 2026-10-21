@@ -86,6 +86,11 @@ enum QuoteEligibilityStatus {
   INELIGIBLE
 }
 
+enum ProductRecommendationStatus {
+  INCLUDED
+  EXCLUDED
+}
+
 enum AdminMatchReviewDecision {
   APPROVED
   REJECTED
@@ -139,6 +144,7 @@ model Profile {
 
   applications Application[]
   matchReviews AdminMatchReview[]
+  productRecommendationReviews LoanProduct[] @relation("LoanProductRecommendationReviewer")
 
   @@map("profiles")
 }
@@ -207,6 +213,11 @@ model LoanProduct {
   maxLvr      Decimal?        @map("max_lvr") @db.Decimal(5, 2)
   minLimit    Decimal?        @map("min_limit") @db.Decimal(12, 2)
   isActive    Boolean         @default(true) @map("is_active")
+  recommendationStatus       ProductRecommendationStatus @default(INCLUDED) @map("recommendation_status")
+  recommendationNote         String?                     @map("recommendation_note") @db.VarChar(1000)
+  recommendationSourceUri    String?                     @map("recommendation_source_uri") @db.Text
+  recommendationReviewedAt   DateTime?                   @map("recommendation_reviewed_at")
+  recommendationReviewedById String?                     @map("recommendation_reviewed_by_id") @db.Uuid
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -218,8 +229,10 @@ model LoanProduct {
   snapshots        LoanProductSnapshot[]
   promotionSources PromotionSourceSnapshot[]
   quotes           ApplicationQuote[]
+  recommendationReviewedBy Profile? @relation("LoanProductRecommendationReviewer", fields: [recommendationReviewedById], references: [id], onDelete: SetNull)
 
   @@unique([lenderId, externalId])
+  @@index([isActive, recommendationStatus])
   @@map("loan_products")
 }
 
