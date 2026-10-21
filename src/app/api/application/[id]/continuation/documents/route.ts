@@ -28,7 +28,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!type.signature(bytes)) return NextResponse.json({ error: 'The file contents do not match the selected file type.' }, { status: 415 });
 
     const continuation = await prisma.applicationContinuation.findFirst({
-      where: { applicationId: id, application: { userId: identity.profile.id }, status: 'DRAFT' },
+      where: {
+        applicationId: id,
+        application: { userId: identity.profile.id },
+        OR: [
+          { status: 'DRAFT' },
+          { status: 'SUBMITTED', reviewStatus: 'NEEDS_INFORMATION' },
+        ],
+      },
       select: { id: true },
     });
     if (!continuation) return NextResponse.json({ error: 'Save your application draft before uploading documents.' }, { status: 404 });

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { ArrowRight, BellRing, ClipboardCheck, CreditCard, LoaderCircle, Megaphone, Users } from 'lucide-react';
 
-type Metrics = { userCount: number; applicationCount: number; cashbackReviewCount: number; followUpCount: number };
+type Metrics = { userCount: number; applicationCount: number; cashbackReviewCount: number; followUpCount: number; brokerReviewCount: number };
 
 export default function AdminDashboardPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
@@ -30,15 +30,17 @@ export default function AdminDashboardPage() {
 
     {error && <p role="alert" className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{error}</p>}
 
-    <section aria-label="Overview metrics" className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <section aria-label="Overview metrics" className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Metric icon={<Users className="h-5 w-5" />} label="Active users" value={metrics?.userCount} />
       <Metric icon={<CreditCard className="h-5 w-5" />} label="Applications" value={metrics?.applicationCount} />
       <Metric icon={<BellRing className="h-5 w-5" />} label="Follow-ups overdue" value={metrics?.followUpCount} accent />
+      <Metric icon={<ClipboardCheck className="h-5 w-5" />} label="Applications for broker review" value={metrics?.brokerReviewCount} accent />
       <Metric icon={<Megaphone className="h-5 w-5" />} label="Cashback changes to review" value={metrics?.cashbackReviewCount} accent />
     </section>
 
     <section className="mt-10"><div><p className="text-xs font-bold uppercase tracking-widest text-slate-500">Work areas</p><h2 className="mt-1 text-xl font-bold text-slate-900">Operations</h2></div>
       <div className="mt-4 grid gap-5 lg:grid-cols-2">
+        <ModuleCard icon={<ClipboardCheck className="h-6 w-6" />} eyebrow="Customer operations" title="Submitted applications" description="Review customer details and uploaded documents, update the review status, and leave customers a note about their next steps." href="/admin/applications/review" action={metrics ? `Review ${metrics.brokerReviewCount} applications` : 'Open review queue'} />
         <ModuleCard icon={<ClipboardCheck className="h-6 w-6" />} eyebrow="Customer operations" title="Applications and match review" description="Search users, review their submitted questionnaires, and inspect or record decisions on the recommended matches within each application." href="/admin/users" action="Open applications" />
         <ModuleCard icon={<BellRing className="h-6 w-6" />} eyebrow="Customer follow-up" title="Recommendation follow-ups" description="Find customers whose recommendation report was shown at least seven days ago and who have not started an application for a product." href="/admin/follow-ups" action="Open follow-up list" />
         <ModuleCard icon={<Megaphone className="h-6 w-6" />} eyebrow="Product data" title="Cashback offers" description="Review new or changed bank offer text, maintain eligibility conditions, and publish current cashback offers for recommendations." href="/admin/promotions" action={metrics ? `Review ${metrics.cashbackReviewCount} changes` : 'Open cashback offers'} />

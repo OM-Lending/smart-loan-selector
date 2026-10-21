@@ -13,11 +13,12 @@ type Application = {
   propertyValue: string | null;
   currentLoanBalance: string | null;
   propertyPostcode: string | null;
+  currentStage: string;
   createdAt: string;
   recommendationStatus: string;
   recommendationCreatedAt: string | null;
   recommendationCount: number;
-  continuation: { status: string; selectedQuote: { id: string; lenderName: string; productName: string } } | null;
+  continuation: { status: string; reviewStatus: string; brokerNote: string | null; selectedQuote: { id: string; lenderName: string; productName: string } } | null;
 };
 
 type ApplicationListResponse = { success: boolean; applications: Application[]; error?: string };
@@ -46,6 +47,18 @@ function recommendationLabel(application: Application) {
   if (application.recommendationStatus === 'FAILED') return 'Could not complete matching';
   if (application.recommendationStatus === 'RUNNING' || application.recommendationStatus === 'PENDING') return 'Matching in progress';
   return 'No matches yet';
+}
+
+function applicationProgress(application: Application) {
+  if (application.continuation?.reviewStatus === 'NEEDS_INFORMATION') return 'Your broker has requested more information';
+  if (application.currentStage === 'BROKER_REVIEW') {
+    if (application.continuation?.reviewStatus === 'IN_REVIEW') return 'A broker is reviewing your application';
+    if (application.continuation?.reviewStatus === 'READY_TO_SUBMIT') return 'Your application is ready for the next step';
+    return 'Waiting for broker review';
+  }
+  if (application.continuation?.status === 'DRAFT') return 'Application in progress';
+  if (application.currentStage === 'DOCUMENTS_PENDING') return 'More information is needed to continue';
+  return null;
 }
 
 export default function DashboardPage() {
@@ -90,10 +103,11 @@ export default function DashboardPage() {
             <p className="mt-1 text-sm text-slate-500">Created {new Date(application.createdAt).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2">
-            {application.continuation && <Link href={`/applications/${application.id}/continue`} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90">{application.continuation.status === 'SUBMITTED' ? 'View application' : 'Continue application'} <ArrowRight className="h-4 w-4" /></Link>}
+            {application.continuation && <Link href={application.continuation.reviewStatus === 'NEEDS_INFORMATION' ? `/applications/${application.id}/continue` : application.continuation.status === 'SUBMITTED' ? `/applications/${application.id}/details` : `/applications/${application.id}/continue`} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-primary/90">{application.continuation.reviewStatus === 'NEEDS_INFORMATION' ? 'Update requested information' : application.continuation.status === 'SUBMITTED' ? 'View application' : 'Continue application'} <ArrowRight className="h-4 w-4" /></Link>}
             <Link href={`/applications/${application.id}/recommendations`} className="inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2.5 text-sm font-semibold text-primary hover:bg-primary/5">View matches <ArrowRight className="h-4 w-4" /></Link>
           </div>
         </div>
+        {applicationProgress(application) && <div className={`mt-4 rounded-xl border px-4 py-3 ${application.continuation?.reviewStatus === 'NEEDS_INFORMATION' ? 'border-amber-200 bg-amber-50' : 'border-primary/15 bg-primary/5'}`}><p className="text-xs font-bold uppercase tracking-wide text-primary">Application status</p><p className="mt-1 text-sm font-semibold text-slate-900">{applicationProgress(application)}</p>{application.continuation?.brokerNote && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{application.continuation.brokerNote}</p>}</div>}
         {application.continuation && <div className="mt-4 rounded-xl border border-primary/15 bg-primary/5 px-4 py-3"><p className="text-xs font-bold uppercase tracking-wide text-primary">Selected product for this application</p><p className="mt-1 text-sm font-semibold text-slate-900">{application.continuation.selectedQuote.lenderName} · {application.continuation.selectedQuote.productName}</p></div>}
         <dl className="mt-5 grid gap-3 border-t border-slate-100 pt-4 sm:grid-cols-3">{applicationSummary(application).map(item => <div key={item.label}><dt className="text-xs font-medium text-slate-500">{item.label}</dt><dd className="mt-1 font-semibold tabular-nums text-slate-900">{item.value}</dd></div>)}</dl>
       </article>)}</div>}
