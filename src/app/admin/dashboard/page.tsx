@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { ArrowRight, BellRing, ClipboardCheck, CreditCard, LoaderCircle, Megaphone, Users } from 'lucide-react';
+import { ArrowRight, BellRing, ClipboardCheck, CreditCard, LoaderCircle, Megaphone, PackageSearch, Users } from 'lucide-react';
 
 type Metrics = { userCount: number; applicationCount: number; cashbackReviewCount: number; followUpCount: number; brokerReviewCount: number };
 
@@ -44,6 +44,7 @@ export default function AdminDashboardPage() {
         <ModuleCard icon={<ClipboardCheck className="h-6 w-6" />} eyebrow="Customer operations" title="Applications and match review" description="Search users, review their submitted questionnaires, and inspect or record decisions on the recommended matches within each application." href="/admin/users" action="Open applications" />
         <ModuleCard icon={<BellRing className="h-6 w-6" />} eyebrow="Customer follow-up" title="Recommendation follow-ups" description="Find customers whose recommendation report was shown at least seven days ago and who have not started an application for a product." href="/admin/follow-ups" action="Open follow-up list" />
         <ModuleCard icon={<Megaphone className="h-6 w-6" />} eyebrow="Product data" title="Cashback offers" description="Review new or changed bank offer text, maintain eligibility conditions, and publish current cashback offers for recommendations." href="/admin/promotions" action={metrics ? `Review ${metrics.cashbackReviewCount} changes` : 'Open cashback offers'} />
+        <ModuleCard icon={<PackageSearch className="h-6 w-6" />} eyebrow="Product data" title="Loan products" description="Browse active bank mortgage products and control whether each product can appear in customer recommendations." href="/admin/products" action="Manage loan products" />
       </div>
     </section>
   </main>;
