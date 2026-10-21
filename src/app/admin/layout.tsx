@@ -14,6 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <nav aria-label="Admin sections" className="flex flex-wrap items-center gap-2 text-sm font-semibold">
           <Link href="/admin/dashboard" className="rounded-full px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-primary">Overview</Link>
           <Link href="/admin/users" className="rounded-full px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-primary">Users & applications</Link>
+          <Link href="/admin/applications/review" className="rounded-full px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-primary">Submitted applications</Link>
           <Link href="/admin/promotions" className="rounded-full px-3 py-2 text-slate-700 hover:bg-slate-100 hover:text-primary">Cashback offers</Link>
           <Link href="/dashboard" className="rounded-full border border-slate-200 px-3 py-2 text-slate-600 hover:border-primary/40 hover:text-primary">Customer dashboard</Link>
         </nav>

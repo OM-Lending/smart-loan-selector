@@ -22,13 +22,14 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const { id } = Params.parse(await context.params);
     const application = await prisma.application.findFirst({
       where: { id, userId: identity.profile.id },
-      select: { id: true, goal: true, employmentStatus: true, employmentStartDate: true, grossAnnualSalary: true, relationshipStatus: true, user: { select: { fullName: true, email: true, phone: true } }, continuation: { include: { selectedQuote: true, documents: { orderBy: { uploadedAt: 'desc' } } } } },
+      select: { id: true, goal: true, currentStage: true, employmentStatus: true, employmentStartDate: true, grossAnnualSalary: true, relationshipStatus: true, user: { select: { fullName: true, email: true, phone: true } }, continuation: { include: { selectedQuote: true, documents: { orderBy: { uploadedAt: 'desc' } } } } },
     });
     if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     const continuation = application.continuation;
     return NextResponse.json({
       applicationId: application.id,
       goal: application.goal,
+      currentStage: application.currentStage,
       customer: application.user,
       knownAnswers: {
         employmentStatus: application.employmentStatus,
@@ -39,6 +40,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       continuation: continuation ? {
         id: continuation.id,
         status: continuation.status,
+        reviewStatus: continuation.reviewStatus,
+        brokerNote: continuation.brokerNote,
+        submittedAt: continuation.submittedAt?.toISOString() ?? null,
         details: continuation.details,
         selectedQuote: responseQuote(continuation.selectedQuote),
         documents: continuation.documents.map(({ id, category, fileName, contentType, sizeBytes, uploadedAt }) => ({ id, category, fileName, contentType, sizeBytes, uploadedAt })),
@@ -55,6 +59,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
   try {
     const identity = await getAuthenticatedProfile();
     if (!identity?.profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const profileId = identity.profile.id;
     const { id } = Params.parse(await context.params);
     const parsed = SaveBody.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: 'Invalid application details', details: parsed.error.flatten().fieldErrors }, { status: 400 });
@@ -64,7 +69,9 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     const application = await prisma.application.findFirst({ where: { id, userId: identity.profile.id }, select: { id: true } });
     if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     const existing = await prisma.applicationContinuation.findUnique({ where: { applicationId: id } });
-    if (existing?.status === 'SUBMITTED') return NextResponse.json({ error: 'This application has already been submitted' }, { status: 409 });
+    if (existing?.status === 'SUBMITTED' && existing.reviewStatus !== 'NEEDS_INFORMATION') {
+      return NextResponse.json({ error: 'This application has already been submitted' }, { status: 409 });
+    }
     const resolvedQuoteId = quoteId ?? existing?.selectedQuoteId;
     if (!resolvedQuoteId) return NextResponse.json({ error: 'Choose a product before continuing' }, { status: 400 });
     const quote = await prisma.applicationQuote.findFirst({ where: { id: resolvedQuoteId, applicationId: id }, select: { id: true } });
@@ -156,12 +163,51 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     }
 
     const jsonDetails = details as Prisma.InputJsonValue;
-    const continuation = existing
-      ? await prisma.applicationContinuation.update({ where: { id: existing.id }, data: { selectedQuoteId: resolvedQuoteId, details: jsonDetails, ...(submit ? { status: 'SUBMITTED', submittedAt: new Date() } : {}) }, include: { selectedQuote: true } })
-      : await prisma.applicationContinuation.create({ data: { applicationId: id, selectedQuoteId: resolvedQuoteId, details: jsonDetails, ...(submit ? { status: 'SUBMITTED', submittedAt: new Date() } : {}) }, include: { selectedQuote: true } });
-    await prisma.application.updateMany({ where: { id, userId: identity.profile.id, applyClickedAt: null }, data: { applyClickedAt: new Date(), currentStage: 'APPLICATION_STARTED' } });
-    if (submit) await prisma.application.update({ where: { id }, data: { currentStage: 'DOCUMENTS_PENDING' } });
-    return NextResponse.json({ success: true, status: continuation.status, continuationId: continuation.id, selectedQuote: responseQuote(continuation.selectedQuote) });
+    const continuation = await prisma.$transaction(async tx => {
+      const continuation = existing
+        ? await tx.applicationContinuation.update({
+            where: { id: existing.id },
+            data: {
+              selectedQuoteId: resolvedQuoteId,
+              details: jsonDetails,
+              ...(submit
+                ? { status: 'SUBMITTED' as const, reviewStatus: 'NEW' as const, brokerNote: null, submittedAt: new Date() }
+                : existing.status === 'SUBMITTED'
+                  ? { status: 'DRAFT' as const, reviewStatus: 'NEW' as const, brokerNote: null, submittedAt: null }
+                  : {}),
+            },
+            include: { selectedQuote: true },
+          })
+        : await tx.applicationContinuation.create({
+            data: {
+              applicationId: id,
+              selectedQuoteId: resolvedQuoteId,
+              details: jsonDetails,
+              ...(submit ? { status: 'SUBMITTED' as const, submittedAt: new Date() } : {}),
+            },
+            include: { selectedQuote: true },
+          });
+
+      await tx.application.updateMany({
+        where: { id, userId: profileId, applyClickedAt: null },
+        data: { applyClickedAt: new Date() },
+      });
+
+      if (submit) {
+        await tx.application.update({ where: { id }, data: { currentStage: 'BROKER_REVIEW' } });
+      } else if (existing?.status === 'SUBMITTED') {
+        await tx.application.update({ where: { id }, data: { currentStage: 'DOCUMENTS_PENDING' } });
+      } else {
+        await tx.application.updateMany({
+          where: { id, userId: profileId, currentStage: { in: ['LEAD_CAPTURED', 'QUOTED', 'RECOMMENDATION_SENT'] } },
+          data: { currentStage: 'APPLICATION_STARTED' },
+        });
+      }
+
+      return continuation;
+    });
+
+    return NextResponse.json({ success: true, status: continuation.status, reviewStatus: continuation.reviewStatus, continuationId: continuation.id, selectedQuote: responseQuote(continuation.selectedQuote) });
   } catch (error) {
     if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid application id' }, { status: 400 });
     console.error('Failed to save continuation draft:', error);

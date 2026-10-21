@@ -7,15 +7,16 @@ export async function GET() {
   if (!access.ok) return access.response;
 
   const followUpCutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const [userCount, applicationCount, cashbackReviewCount, followUpCount] = await Promise.all([
+  const [userCount, applicationCount, cashbackReviewCount, followUpCount, brokerReviewCount] = await Promise.all([
     prisma.profile.count({ where: { deletedAt: null } }),
     prisma.application.count({ where: { user: { deletedAt: null } } }),
     prisma.promotionSourceSnapshot.count({ where: { reviewStatus: 'REVIEW_REQUIRED', isCurrent: true } }),
     prisma.application.count({ where: { recommendationPresentedAt: { lte: followUpCutoff }, applyClickedAt: null, user: { deletedAt: null } } }),
+    prisma.applicationContinuation.count({ where: { status: 'SUBMITTED', reviewStatus: { in: ['NEW', 'IN_REVIEW', 'NEEDS_INFORMATION', 'READY_TO_SUBMIT'] }, application: { currentStage: 'BROKER_REVIEW' } } }),
   ]);
 
   return NextResponse.json({
     success: true,
-    metrics: { userCount, applicationCount, cashbackReviewCount, followUpCount },
+    metrics: { userCount, applicationCount, cashbackReviewCount, followUpCount, brokerReviewCount },
   }, { headers: { 'Cache-Control': 'no-store' } });
 }

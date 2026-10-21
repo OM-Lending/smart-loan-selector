@@ -18,6 +18,7 @@ export async function GET() {
       propertyValue: true,
       currentLoanBalance: true,
       propertyPostcode: true,
+      currentStage: true,
       createdAt: true,
       recommendationRuns: {
         take: 1,
@@ -27,6 +28,8 @@ export async function GET() {
       continuation: {
         select: {
           status: true,
+          reviewStatus: true,
+          brokerNote: true,
           selectedQuote: { select: { id: true, lenderName: true, productName: true } },
         },
       },
@@ -43,12 +46,15 @@ export async function GET() {
       propertyValue: application.propertyValue?.toString() ?? null,
       currentLoanBalance: application.currentLoanBalance?.toString() ?? null,
       propertyPostcode: application.propertyPostcode,
+      currentStage: application.currentStage,
       createdAt: application.createdAt.toISOString(),
       recommendationStatus: application.recommendationRuns[0]?.status ?? 'PENDING',
       recommendationCreatedAt: application.recommendationRuns[0]?.createdAt.toISOString() ?? null,
       recommendationCount: application.recommendationRuns[0]?._count.quotes ?? 0,
       continuation: application.continuation ? {
         status: application.continuation.status,
+        reviewStatus: application.continuation.reviewStatus,
+        brokerNote: application.continuation.brokerNote,
         selectedQuote: application.continuation.selectedQuote,
       } : null,
     })),

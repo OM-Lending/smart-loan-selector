@@ -22,6 +22,7 @@ enum ApplicationStage {
   RECOMMENDATION_SENT
   APPLICATION_STARTED
   DOCUMENTS_PENDING
+  BROKER_REVIEW
   SUBMITTED_TO_LENDER
   PRE_APPROVED
   UNCONDITIONAL_APPROVED
@@ -31,6 +32,13 @@ enum ApplicationStage {
 enum ApplicationContinuationStatus {
   DRAFT
   SUBMITTED
+}
+
+enum BrokerReviewStatus {
+  NEW
+  IN_REVIEW
+  NEEDS_INFORMATION
+  READY_TO_SUBMIT
 }
 
 enum LenderCategory {
@@ -524,6 +532,8 @@ model ApplicationContinuation {
   applicationId     String                        @unique @map("application_id") @db.Uuid
   selectedQuoteId   String                        @unique @map("selected_quote_id") @db.Uuid
   status            ApplicationContinuationStatus @default(DRAFT)
+  reviewStatus      BrokerReviewStatus            @default(NEW) @map("review_status")
+  brokerNote        String?                       @map("broker_note") @db.VarChar(2000)
   details           Json                          @default("{}")
   startedAt         DateTime                      @default(now()) @map("started_at")
   submittedAt       DateTime?                     @map("submitted_at")
