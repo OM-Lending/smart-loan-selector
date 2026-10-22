@@ -172,9 +172,10 @@ export async function generateRecommendations({ applicationId, userId }: { appli
     return { candidate, eligibility, rate, repayment, score, reasons, promotions, appliedCashback, projected };
   });
   assessed.sort((a, b) => {
-    const statusOrder = { ELIGIBLE: 0, REVIEW_REQUIRED: 1, INELIGIBLE: 2 };
-    return statusOrder[a.eligibility.status as keyof typeof statusOrder] - statusOrder[b.eligibility.status as keyof typeof statusOrder]
-      || a.projected.netCost.minus(b.projected.netCost).toNumber()
+    // Parsing warnings remain visible on each quote, but must not push a
+    // potentially suitable lower-cost product below every fully parsed rate.
+    // Hard ineligibility is still excluded when selecting the final top five.
+    return a.projected.netCost.minus(b.projected.netCost).toNumber()
       || b.score.minus(a.score).toNumber();
   });
   const top = assessed.filter(x => x.eligibility.status !== 'INELIGIBLE').slice(0, 5);
