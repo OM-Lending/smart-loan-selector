@@ -17,43 +17,47 @@ const dateMMSchema = z.string()
   .optional()
   .or(z.literal(''));
 
+const optionalChoice = <T extends readonly [string, ...string[]]>(values: T) => z.preprocess(
+  value => value === '' || value === null ? undefined : value,
+  z.enum(values).optional(),
+);
+
 export const ApplicationSchema = z.object({
   goal: z.enum(['BUY', 'REFINANCE'], { error: 'Loan goal is required' }),
-  buySituation: z.string().optional(),
+  buySituation: optionalChoice(['EXPLORING', 'WITHIN_3_TO_6_MONTHS', 'MADE_OFFER', 'EXCHANGED'] as const),
   isFirstHomeBuyer: z.boolean().nullable().optional(),
   
-  propertyUse: z.string().optional(),
-  propertyStatus: z.string().optional(),
-  propertyType: z.string().optional(),
-  propertyPostcode: z.string().optional(),
+  propertyUse: optionalChoice(['OWNER_OCCUPIED', 'INVESTMENT'] as const),
+  propertyStatus: optionalChoice(['ESTABLISHED', 'NEW', 'VACANT_LAND'] as const),
+  propertyType: optionalChoice(['HOUSE', 'TOWNHOUSE', 'APARTMENT'] as const),
+  propertyPostcode: z.string().regex(/^\d{4}$/, 'Enter a valid 4-digit Australian postcode').optional().or(z.literal('')),
   purchasePrice: emptyToUndefinedNumber,
   deposit: emptyToUndefinedNumber,
   
-  refinanceGoal: z.string().optional(),
+  refinanceGoal: optionalChoice(['REDUCE_INTEREST', 'CASH_OUT'] as const),
   cashOutPurpose: z.string().optional(),
   propertyAddress: z.string().optional(),
   currentLender: z.string().optional(),
   propertyValue: emptyToUndefinedNumber,
   currentLoanBalance: emptyToUndefinedNumber,
   currentInterestRate: emptyToUndefinedNumber,
-  currentRepaymentType: z.string().optional(),
+  currentRepaymentType: optionalChoice(['P_AND_I', 'INTEREST_ONLY'] as const),
   isFixedRate: z.boolean().nullable().optional(),
   fixedRateExpiry: dateMMSchema,
   
   repaymentStructure: z.enum(['P_AND_I', 'INTEREST_ONLY'], { error: 'Choose a repayment structure' }),
-  interestOnlyYears: z.string().optional(),
+  interestOnlyYears: optionalChoice(['1', '2', '3', '4', '5'] as const),
   ratePreference: z.enum(['VARIABLE', 'FIXED'], { error: 'Choose a rate preference' }),
-  fixedYears: z.string().optional(),
+  fixedYears: optionalChoice(['1', '2', '3'] as const),
   
-  employmentStatus: z.string().min(1, 'Employment status is required'),
+  employmentStatus: z.enum(['FULL_TIME', 'PART_TIME', 'CASUAL'], { error: 'Choose a valid employment status' }),
   employmentStartDate: dateMMSchema,
   grossAnnualSalary: strictSalary,
-  
-  relationshipStatus: z.string().min(1, 'Relationship status is required'),
-  partnerEmploymentStatus: z.string().optional(),
+  relationshipStatus: z.enum(['NEVER_MARRIED', 'MARRIED', 'DE_FACTO', 'DIVORCED', 'WIDOWED'], { error: 'Choose a valid relationship status' }),
+  partnerEmploymentStatus: optionalChoice(['FULL_TIME', 'PART_TIME', 'CASUAL'] as const),
   partnerEmploymentStartDate: dateMMSchema,
   partnerGrossSalary: emptyToUndefinedNumber,
-  dependents: z.coerce.number().min(0).default(0),
+  dependents: z.coerce.number().int().min(0).safe().default(0),
   
   hasExistingLoans: z.boolean().nullable().optional(),
   existingMonthlyRepayment: emptyToUndefinedNumber,

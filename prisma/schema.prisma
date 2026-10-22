@@ -61,6 +61,24 @@ enum RatePreference {
   FIXED
 }
 
+enum EmploymentStatus {
+  FULL_TIME
+  PART_TIME
+  CASUAL
+}
+
+enum RelationshipStatus {
+  NEVER_MARRIED
+  MARRIED
+  DE_FACTO
+  DIVORCED
+  WIDOWED
+  // Retained so existing applications remain readable. New submissions only
+  // accept the five current questionnaire values.
+  SINGLE
+  MARRIED_DE_FACTO
+}
+
 enum SyncStatus {
   IN_PROGRESS
   SUCCESS
@@ -142,9 +160,9 @@ model Profile {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  applications Application[]
-  matchReviews AdminMatchReview[]
-  productRecommendationReviews LoanProduct[] @relation("LoanProductRecommendationReviewer")
+  applications                 Application[]
+  matchReviews                 AdminMatchReview[]
+  productRecommendationReviews LoanProduct[]      @relation("LoanProductRecommendationReviewer")
 
   @@map("profiles")
 }
@@ -201,35 +219,36 @@ model LenderSyncRun {
 // 3. PRODUCT & RATE
 // --------------------------------------------------------------------
 model LoanProduct {
-  id          String          @id @default(uuid()) @db.Uuid
-  lenderId    String          @map("lender_id") @db.Uuid
-  externalId  String          @map("external_id")
-  productName String          @map("product_name")
-  description String?         @db.Text
+  id                             String                      @id @default(uuid()) @db.Uuid
+  lenderId                       String                      @map("lender_id") @db.Uuid
+  externalId                     String                      @map("external_id")
+  productName                    String                      @map("product_name")
+  description                    String?                     @db.Text
   // Canonical product features and the full bank response are retained separately.
-  features    Json            @default("[]")
-  rawPayload  Json            @default("{}") @map("raw_payload")
-  parseStatus RuleParseStatus @default(PARSED) @map("parse_status")
-  maxLvr      Decimal?        @map("max_lvr") @db.Decimal(5, 2)
-  minLimit    Decimal?        @map("min_limit") @db.Decimal(12, 2)
-  isActive    Boolean         @default(true) @map("is_active")
-  recommendationStatus       ProductRecommendationStatus @default(INCLUDED) @map("recommendation_status")
-  recommendationNote         String?                     @map("recommendation_note") @db.VarChar(1000)
-  recommendationSourceUri    String?                     @map("recommendation_source_uri") @db.Text
-  recommendationReviewedAt   DateTime?                   @map("recommendation_reviewed_at")
-  recommendationReviewedById String?                     @map("recommendation_reviewed_by_id") @db.Uuid
-  createdAt   DateTime        @default(now()) @map("created_at")
-  updatedAt   DateTime        @updatedAt @map("updated_at")
+  features                       Json                        @default("[]")
+  rawPayload                     Json                        @default("{}") @map("raw_payload")
+  parseStatus                    RuleParseStatus             @default(PARSED) @map("parse_status")
+  maxLvr                         Decimal?                    @map("max_lvr") @db.Decimal(5, 2)
+  minLimit                       Decimal?                    @map("min_limit") @db.Decimal(12, 2)
+  isActive                       Boolean                     @default(true) @map("is_active")
+  recommendationStatus           ProductRecommendationStatus @default(INCLUDED) @map("recommendation_status")
+  recommendationEligibilityRules Json                        @default("{}") @map("recommendation_eligibility_rules")
+  recommendationNote             String?                     @map("recommendation_note") @db.VarChar(1000)
+  recommendationSourceUri        String?                     @map("recommendation_source_uri") @db.Text
+  recommendationReviewedAt       DateTime?                   @map("recommendation_reviewed_at")
+  recommendationReviewedById     String?                     @map("recommendation_reviewed_by_id") @db.Uuid
+  createdAt                      DateTime                    @default(now()) @map("created_at")
+  updatedAt                      DateTime                    @updatedAt @map("updated_at")
 
-  lender           Lender                    @relation(fields: [lenderId], references: [id], onDelete: Restrict)
-  rates            LoanRate[]
-  constraints      LoanProductConstraint[]
-  fees             LoanProductFee[]
-  rateHistories    LoanRateHistory[]
-  snapshots        LoanProductSnapshot[]
-  promotionSources PromotionSourceSnapshot[]
-  quotes           ApplicationQuote[]
-  recommendationReviewedBy Profile? @relation("LoanProductRecommendationReviewer", fields: [recommendationReviewedById], references: [id], onDelete: SetNull)
+  lender                   Lender                    @relation(fields: [lenderId], references: [id], onDelete: Restrict)
+  rates                    LoanRate[]
+  constraints              LoanProductConstraint[]
+  fees                     LoanProductFee[]
+  rateHistories            LoanRateHistory[]
+  snapshots                LoanProductSnapshot[]
+  promotionSources         PromotionSourceSnapshot[]
+  quotes                   ApplicationQuote[]
+  recommendationReviewedBy Profile?                  @relation("LoanProductRecommendationReviewer", fields: [recommendationReviewedById], references: [id], onDelete: SetNull)
 
   @@unique([lenderId, externalId])
   @@index([isActive, recommendationStatus])
@@ -446,27 +465,27 @@ model Application {
   ratePreference     RatePreference     @map("rate_preference")
   fixedYears         String?            @map("fixed_years")
 
-  employmentStatus           String   @map("employment_status")
-  employmentStartDate        String?  @map("employment_start_date")
-  grossAnnualSalary          Decimal  @map("gross_annual_salary") @db.Decimal(12, 2)
-  relationshipStatus         String   @map("relationship_status")
-  partnerEmploymentStatus    String?  @map("partner_employment_status")
-  partnerEmploymentStartDate String?  @map("partner_employment_start_date")
-  partnerGrossSalary         Decimal? @map("partner_gross_salary") @db.Decimal(12, 2)
-  dependents                 Int      @default(0)
-  hasExistingLoans           Boolean? @map("has_existing_loans")
-  existingMonthlyRepayment   Decimal? @map("existing_monthly_repayment") @db.Decimal(12, 2)
-  hasCreditCard              Boolean? @map("has_credit_card")
-  creditCardLimit            Decimal? @map("credit_card_limit") @db.Decimal(12, 2)
-  promotionAnswers           Json     @default("{}") @map("promotion_answers")
+  employmentStatus           EmploymentStatus   @map("employment_status")
+  employmentStartDate        String?            @map("employment_start_date")
+  grossAnnualSalary          Decimal            @map("gross_annual_salary") @db.Decimal(12, 2)
+  relationshipStatus         RelationshipStatus @map("relationship_status")
+  partnerEmploymentStatus    EmploymentStatus?  @map("partner_employment_status")
+  partnerEmploymentStartDate String?            @map("partner_employment_start_date")
+  partnerGrossSalary         Decimal?           @map("partner_gross_salary") @db.Decimal(12, 2)
+  dependents                 Int                @default(0)
+  hasExistingLoans           Boolean?           @map("has_existing_loans")
+  existingMonthlyRepayment   Decimal?           @map("existing_monthly_repayment") @db.Decimal(12, 2)
+  hasCreditCard              Boolean?           @map("has_credit_card")
+  creditCardLimit            Decimal?           @map("credit_card_limit") @db.Decimal(12, 2)
+  promotionAnswers           Json               @default("{}") @map("promotion_answers")
 
-  currentStage ApplicationStage @default(LEAD_CAPTURED) @map("current_stage")
-  recommendationPresentedAt DateTime? @map("recommendation_presented_at")
-  applyClickedAt            DateTime? @map("apply_clicked_at")
-  createdAt    DateTime         @default(now()) @map("created_at")
-  updatedAt    DateTime         @updatedAt @map("updated_at")
+  currentStage              ApplicationStage @default(LEAD_CAPTURED) @map("current_stage")
+  recommendationPresentedAt DateTime?        @map("recommendation_presented_at")
+  applyClickedAt            DateTime?        @map("apply_clicked_at")
+  createdAt                 DateTime         @default(now()) @map("created_at")
+  updatedAt                 DateTime         @updatedAt @map("updated_at")
 
-  user               Profile             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user               Profile                  @relation(fields: [userId], references: [id], onDelete: Restrict)
   recommendationRuns RecommendationRun[]
   quotes             ApplicationQuote[]
   continuation       ApplicationContinuation?
@@ -527,12 +546,12 @@ model ApplicationQuote {
   sourceSyncRunId  String   @map("source_sync_run_id") @db.Uuid
   sourceObservedAt DateTime @map("source_observed_at")
 
-  application       Application       @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  recommendationRun RecommendationRun @relation(fields: [recommendationRunId], references: [id], onDelete: Restrict)
-  product           LoanProduct       @relation(fields: [productId], references: [id], onDelete: Restrict)
-  rate              LoanRate?         @relation(fields: [rateId], references: [id], onDelete: Restrict)
-  sourceSyncRun     LenderSyncRun     @relation(fields: [sourceSyncRunId], references: [id], onDelete: Restrict)
-  adminReviews      AdminMatchReview[]
+  application             Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  recommendationRun       RecommendationRun        @relation(fields: [recommendationRunId], references: [id], onDelete: Restrict)
+  product                 LoanProduct              @relation(fields: [productId], references: [id], onDelete: Restrict)
+  rate                    LoanRate?                @relation(fields: [rateId], references: [id], onDelete: Restrict)
+  sourceSyncRun           LenderSyncRun            @relation(fields: [sourceSyncRunId], references: [id], onDelete: Restrict)
+  adminReviews            AdminMatchReview[]
   selectedForContinuation ApplicationContinuation? @relation("ContinuationQuote")
 
   @@index([applicationId])
@@ -541,20 +560,20 @@ model ApplicationQuote {
 }
 
 model ApplicationContinuation {
-  id                String                        @id @default(uuid()) @db.Uuid
-  applicationId     String                        @unique @map("application_id") @db.Uuid
-  selectedQuoteId   String                        @unique @map("selected_quote_id") @db.Uuid
-  status            ApplicationContinuationStatus @default(DRAFT)
-  reviewStatus      BrokerReviewStatus            @default(NEW) @map("review_status")
-  brokerNote        String?                       @map("broker_note") @db.VarChar(2000)
-  details           Json                          @default("{}")
-  startedAt         DateTime                      @default(now()) @map("started_at")
-  submittedAt       DateTime?                     @map("submitted_at")
-  updatedAt         DateTime                      @updatedAt @map("updated_at")
+  id              String                        @id @default(uuid()) @db.Uuid
+  applicationId   String                        @unique @map("application_id") @db.Uuid
+  selectedQuoteId String                        @unique @map("selected_quote_id") @db.Uuid
+  status          ApplicationContinuationStatus @default(DRAFT)
+  reviewStatus    BrokerReviewStatus            @default(NEW) @map("review_status")
+  brokerNote      String?                       @map("broker_note") @db.VarChar(2000)
+  details         Json                          @default("{}")
+  startedAt       DateTime                      @default(now()) @map("started_at")
+  submittedAt     DateTime?                     @map("submitted_at")
+  updatedAt       DateTime                      @updatedAt @map("updated_at")
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  selectedQuote ApplicationQuote @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
-  documents ApplicationDocument[]
+  application   Application           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  selectedQuote ApplicationQuote      @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
+  documents     ApplicationDocument[]
 
   @@index([selectedQuoteId])
   @@map("application_continuations")
@@ -577,12 +596,12 @@ model ApplicationDocument {
 }
 
 model AdminMatchReview {
-  id                String                    @id @default(uuid()) @db.Uuid
-  quoteId           String                    @map("quote_id") @db.Uuid
-  reviewerProfileId String                    @map("reviewer_profile_id") @db.Uuid
+  id                String                   @id @default(uuid()) @db.Uuid
+  quoteId           String                   @map("quote_id") @db.Uuid
+  reviewerProfileId String                   @map("reviewer_profile_id") @db.Uuid
   decision          AdminMatchReviewDecision
-  note              String?                   @db.VarChar(2000)
-  createdAt         DateTime                  @default(now()) @map("created_at")
+  note              String?                  @db.VarChar(2000)
+  createdAt         DateTime                 @default(now()) @map("created_at")
 
   quote    ApplicationQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
   reviewer Profile          @relation(fields: [reviewerProfileId], references: [id], onDelete: Restrict)

@@ -8,7 +8,7 @@ export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
 
 const RULES_VERSION = 'mortgage-v2.0.0';
-const ENGINE_VERSION = 'recommendation-engine-v9';
+const ENGINE_VERSION = 'recommendation-engine-v10';
 const COMPARISON_HORIZON_MONTHS = 60;
 const D = (value: unknown) => new Decimal(value === null || value === undefined ? 0 : String(value));
 // Older database rows were persisted directly from CDR RateString (ratio
@@ -29,10 +29,15 @@ function calculateMonthlyRepayment(principal: Decimal, annualRate: Decimal, year
   return principal.mul(monthlyRate).mul(factor).div(factor.minus(1));
 }
 
-function assess(candidate: Candidate, loanAmount: Decimal, lvr: Decimal, requestedIOYears: number, requestedFixedYears: number) {
+function assess(candidate: Candidate, app: { relationshipStatus: string; dependents: number }, loanAmount: Decimal, lvr: Decimal, requestedIOYears: number, requestedFixedYears: number) {
   const reasons: string[] = [];
   const warnings: string[] = [];
   const productRules = candidate.product.constraints ?? [];
+  const recommendationRules = jsonObject(candidate.product.recommendationEligibilityRules);
+  if (recommendationRules.applicantType === 'SINGLE_PARENT_ONLY'
+    && !(['NEVER_MARRIED', 'DIVORCED', 'WIDOWED', 'SINGLE'].includes(app.relationshipStatus) && app.dependents > 0)) {
+    reasons.push('SINGLE_PARENT_ONLY_PRODUCT');
+  }
   if (candidate.minAmount && loanAmount.lt(candidate.minAmount)) reasons.push('BELOW_RATE_MINIMUM_AMOUNT');
   if (candidate.maxAmount && loanAmount.gt(candidate.maxAmount)) reasons.push('ABOVE_RATE_MAXIMUM_AMOUNT');
   if (candidate.minLvr && lvr.lt(candidate.minLvr)) reasons.push('BELOW_RATE_MINIMUM_LVR');
@@ -127,7 +132,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
   });
 
   const assessed = rates.map(candidate => {
-    const eligibility = assess(candidate, loanAmount, lvr, requestedIOYears, requestedFixedYears);
+    const eligibility = assess(candidate, app, loanAmount, lvr, requestedIOYears, requestedFixedYears);
     const rate = asPercentagePoints(candidate.interestRate);
     const repayment = calculateMonthlyRepayment(loanAmount, rate, 30, targetRepayment);
     const promotionContext = {
@@ -206,6 +211,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
       } as Prisma.InputJsonValue, eligibilityStatus: result.eligibility.status,
       productSnapshot: {
         name: result.candidate.product.productName, features: result.candidate.product.features,
+        recommendationEligibilityRules: result.candidate.product.recommendationEligibilityRules,
         constraints: result.candidate.product.constraints.map(c => c.rawConstraint),
       } as Prisma.InputJsonValue,
       rateSnapshot: {

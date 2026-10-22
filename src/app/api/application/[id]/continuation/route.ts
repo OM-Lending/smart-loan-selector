@@ -111,11 +111,12 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
       const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
       const positiveInteger = (value: unknown) => typeof value === 'string' && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value));
       const validPhone = (value: unknown) => typeof value === 'string' && /^\+?[0-9() -]{8,24}$/.test(value) && (value.match(/\d/g)?.length ?? 0) >= 8 && (value.match(/\d/g)?.length ?? 0) <= 15;
-      if (applicant.maritalStatus !== 'SINGLE' && applicant.maritalStatus !== 'MARRIED_DE_FACTO') validationErrors.push('Choose a valid marital status.');
+      const maritalStatuses = ['NEVER_MARRIED', 'MARRIED', 'DE_FACTO', 'DIVORCED', 'WIDOWED', 'SINGLE', 'MARRIED_DE_FACTO'];
+      if (!maritalStatuses.includes(String(applicant.maritalStatus))) validationErrors.push('Choose a valid marital status.');
       if (!['FULL_TIME', 'PART_TIME', 'CASUAL', 'SELF_EMPLOYED'].includes(String(employment.employmentType))) validationErrors.push('Choose a valid employment type.');
       if (!positiveInteger(employment.annualIncome)) validationErrors.push('Annual income must be a positive whole number without a leading zero.');
       if (applicant2.annualIncome !== undefined && String(applicant2.annualIncome).trim() !== '' && !positiveInteger(applicant2.annualIncome)) validationErrors.push('Applicant 2 annual income must be a positive whole number without a leading zero.');
-      if (applicant2.maritalStatus && !['SINGLE', 'MARRIED_DE_FACTO'].includes(String(applicant2.maritalStatus))) validationErrors.push('Choose a valid marital status for Applicant 2.');
+      if (applicant2.maritalStatus && !maritalStatuses.includes(String(applicant2.maritalStatus))) validationErrors.push('Choose a valid marital status for Applicant 2.');
       if (applicant2.employmentStatus && !['FULL_TIME', 'PART_TIME', 'CASUAL', 'SELF_EMPLOYED'].includes(String(applicant2.employmentStatus))) validationErrors.push('Choose a valid employment type for Applicant 2.');
       if (!validDate(applicant.dateOfBirth) || new Date(`${applicant.dateOfBirth}T00:00:00`) >= new Date()) validationErrors.push('Enter a valid date of birth for Applicant 1.');
       if (typeof applicant.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant.email)) validationErrors.push('Enter a valid email address.');

@@ -469,7 +469,7 @@ export function LoanWizard() {
                </div>
 
                <div>
-                 <Label className="text-base font-bold mb-3 block">Relationship Status</Label>
+                 <Label className="text-base font-bold mb-3 block">Marital Status</Label>
                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                    {QUESTIONNAIRE.relationshipStatuses.map((item) => (
                      <button type="button" key={item.id} onClick={() => setValue('relationshipStatus', item.id, { shouldValidate: true })} className={`p-3 rounded-xl border text-sm font-medium transition-all ${formValues.relationshipStatus === item.id ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{item.label}</button>
@@ -478,7 +478,7 @@ export function LoanWizard() {
                  {errors.relationshipStatus && <p className="text-red-500 text-sm mt-1">{errors.relationshipStatus.message}</p>}
                </div>
 
-               {formValues.relationshipStatus === 'MARRIED_DE_FACTO' && (
+               {(formValues.relationshipStatus === 'MARRIED' || formValues.relationshipStatus === 'DE_FACTO') && (
                  <div className="p-6 bg-slate-50 rounded-xl border animate-in fade-in space-y-6">
                    <h4 className="font-bold text-slate-800">Partner&apos;s Employment Details</h4>
                    <div>
