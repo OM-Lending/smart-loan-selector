@@ -37,11 +37,14 @@ export const QUESTIONNAIRE = {
     { id: 'FULL_TIME', label: 'Full-time' },
     { id: 'PART_TIME', label: 'Part-time' },
     { id: 'CASUAL', label: 'Casual' },
-  ],
+  ] as const,
   relationshipStatuses: [
-    { id: 'SINGLE', label: 'Single' },
-    { id: 'MARRIED_DE_FACTO', label: 'Married or De facto' },
-  ],
+    { id: 'NEVER_MARRIED', label: 'Never married' },
+    { id: 'MARRIED', label: 'Married' },
+    { id: 'DE_FACTO', label: 'De facto' },
+    { id: 'DIVORCED', label: 'Divorced' },
+    { id: 'WIDOWED', label: 'Widowed' },
+  ] as const,
   // Standardized Boolean Options
   booleanOptions: [
     { value: true, label: 'Yes' },

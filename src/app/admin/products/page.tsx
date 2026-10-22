@@ -11,6 +11,7 @@ type Product = {
   productName: string;
   description: string | null;
   recommendationStatus: 'INCLUDED' | 'EXCLUDED';
+  recommendationEligibilityRules: { applicantType?: 'SINGLE_PARENT_ONLY' } | null;
   recommendationNote: string | null;
   recommendationSourceUri: string | null;
   recommendationReviewedAt: string | null;
@@ -56,7 +57,7 @@ export default function AdminLoanProductsPage() {
     setPage(1); setAppliedQuery(query.trim());
   }
 
-  async function saveProduct(productId: string, values: { recommendationStatus: Product['recommendationStatus']; note: string; sourceUri: string }) {
+  async function saveProduct(productId: string, values: { recommendationStatus: Product['recommendationStatus']; applicantTypeRule: 'ANY' | 'SINGLE_PARENT_ONLY'; note: string; sourceUri: string }) {
     setNotice(''); setError('');
     try {
       const response = await fetch(`/api/admin/products/${productId}`, {
@@ -93,17 +94,18 @@ export default function AdminLoanProductsPage() {
   </main>;
 }
 
-function ProductCard({ product, onSave }: { product: Product; onSave: (id: string, values: { recommendationStatus: Product['recommendationStatus']; note: string; sourceUri: string }) => Promise<boolean> }) {
+function ProductCard({ product, onSave }: { product: Product; onSave: (id: string, values: { recommendationStatus: Product['recommendationStatus']; applicantTypeRule: 'ANY' | 'SINGLE_PARENT_ONLY'; note: string; sourceUri: string }) => Promise<boolean> }) {
   const [recommendationStatus, setRecommendationStatus] = useState(product.recommendationStatus);
+  const [applicantTypeRule, setApplicantTypeRule] = useState<'ANY' | 'SINGLE_PARENT_ONLY'>(product.recommendationEligibilityRules?.applicantType ?? 'ANY');
   const [note, setNote] = useState(product.recommendationNote ?? '');
   const [sourceUri, setSourceUri] = useState(product.recommendationSourceUri ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const changed = recommendationStatus !== product.recommendationStatus || note !== (product.recommendationNote ?? '') || sourceUri !== (product.recommendationSourceUri ?? '');
+  const changed = recommendationStatus !== product.recommendationStatus || applicantTypeRule !== (product.recommendationEligibilityRules?.applicantType ?? 'ANY') || note !== (product.recommendationNote ?? '') || sourceUri !== (product.recommendationSourceUri ?? '');
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError('');
-    const saved = await onSave(product.id, { recommendationStatus, note, sourceUri });
+    const saved = await onSave(product.id, { recommendationStatus, applicantTypeRule, note, sourceUri });
     if (!saved) setError('Please correct the error above and try again.');
     setSaving(false);
   }
@@ -114,10 +116,11 @@ function ProductCard({ product, onSave }: { product: Product; onSave: (id: strin
     <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">{product.rates.length > 0 && <p className="text-slate-600">Current rates: {product.rates.map(rate => `${rate.interestRate}% ${rate.rateType.toLowerCase()}`).join(' · ')}</p>}{product.applicationUri && <a href={product.applicationUri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">Application page<ExternalLink className="h-3.5 w-3.5"/></a>}{product.overviewUri && <a href={product.overviewUri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">Bank product page<ExternalLink className="h-3.5 w-3.5"/></a>}</div>
     <form onSubmit={submit} className="mt-5 grid gap-4 border-t border-slate-100 pt-5 md:grid-cols-2">
       <label className="block"><span className="text-sm font-semibold text-slate-700">Recommendation status</span><select value={recommendationStatus} onChange={event => setRecommendationStatus(event.target.value as Product['recommendationStatus'])} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="INCLUDED">Include in recommendations</option><option value="EXCLUDED">Exclude from recommendations</option></select></label>
-      {recommendationStatus === 'EXCLUDED' && <><label className="block md:col-span-2"><span className="text-sm font-semibold text-slate-700">Reason for exclusion <span className="text-red-700">*</span></span><textarea value={note} onChange={event => setNote(event.target.value)} required maxLength={1000} rows={2} placeholder="For example: Direct online application; broker channel is not available." className="mt-1.5 w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/></label><label className="block md:col-span-2"><span className="text-sm font-semibold text-slate-700">Official source link <span className="font-normal text-slate-500">(recommended)</span></span><input type="url" value={sourceUri} onChange={event => setSourceUri(event.target.value)} placeholder="https://bank.example.com/product-terms" className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/></label></>}
+      <label className="block"><span className="text-sm font-semibold text-slate-700">Applicant eligibility</span><select value={applicantTypeRule} onChange={event => setApplicantTypeRule(event.target.value as 'ANY' | 'SINGLE_PARENT_ONLY')} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="ANY">No additional applicant restriction</option><option value="SINGLE_PARENT_ONLY">Single parent applicants only</option></select><span className="mt-1 block text-xs text-slate-500">Matching uses marital status and the existing financial-dependents answer. Bank policy remains the final authority.</span></label>
+      {(recommendationStatus === 'EXCLUDED' || applicantTypeRule !== 'ANY') && <><label className="block md:col-span-2"><span className="text-sm font-semibold text-slate-700">{recommendationStatus === 'EXCLUDED' ? 'Reason for exclusion' : 'Eligibility note'} <span className="text-red-700">*</span></span><textarea value={note} onChange={event => setNote(event.target.value)} required maxLength={1000} rows={2} placeholder={recommendationStatus === 'EXCLUDED' ? 'For example: Direct online application; broker channel is not available.' : 'Record the bank policy that supports this eligibility restriction.'} className="mt-1.5 w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/></label><label className="block md:col-span-2"><span className="text-sm font-semibold text-slate-700">Official source link <span className="font-normal text-slate-500">(recommended)</span></span><input type="url" value={sourceUri} onChange={event => setSourceUri(event.target.value)} placeholder="https://bank.example.com/product-terms" className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/></label></>}
       {product.recommendationReviewedAt && <p className="text-xs text-slate-500 md:col-span-2">Last reviewed {new Date(product.recommendationReviewedAt).toLocaleString('en-AU')}{product.recommendationReviewer ? ` by ${product.recommendationReviewer.fullName || product.recommendationReviewer.email}` : ''}</p>}
       {error && <p role="alert" className="text-sm text-red-700 md:col-span-2">{error}</p>}
-      <div className="md:col-span-2"><button type="submit" disabled={saving || !changed || (recommendationStatus === 'EXCLUDED' && !note.trim())} className="rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving…' : 'Save recommendation setting'}</button></div>
+      <div className="md:col-span-2"><button type="submit" disabled={saving || !changed || ((recommendationStatus === 'EXCLUDED' || applicantTypeRule !== 'ANY') && !note.trim())} className="rounded-full bg-primary px-5 py-2.5 text-sm font-bold text-white hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Saving…' : 'Save recommendation setting'}</button></div>
     </form>
   </article>;
 }

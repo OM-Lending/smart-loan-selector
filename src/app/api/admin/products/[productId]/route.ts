@@ -6,6 +6,7 @@ import { requireAdmin } from '@/server/lib/admin-auth';
 const ProductId = z.string().uuid();
 const UpdateBody = z.object({
   recommendationStatus: z.enum(['INCLUDED', 'EXCLUDED']),
+  applicantTypeRule: z.enum(['ANY', 'SINGLE_PARENT_ONLY']).default('ANY'),
   note: z.string().trim().max(1000).default(''),
   sourceUri: z.union([z.string().url(), z.literal('')]).default(''),
 });
@@ -18,8 +19,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ produ
     const { productId } = await context.params;
     if (!ProductId.safeParse(productId).success) return NextResponse.json({ error: 'Invalid product id.' }, { status: 400 });
     const form = UpdateBody.parse(await request.json());
-    if (form.recommendationStatus === 'EXCLUDED' && !form.note) {
-      return NextResponse.json({ error: 'Add a reason before excluding this product.' }, { status: 400 });
+    if ((form.recommendationStatus === 'EXCLUDED' || form.applicantTypeRule !== 'ANY') && !form.note) {
+      return NextResponse.json({ error: 'Add a note explaining this recommendation rule.' }, { status: 400 });
     }
     const exists = await prisma.loanProduct.findFirst({ where: { id: productId, isActive: true, lender: { isActive: true } }, select: { id: true } });
     if (!exists) return NextResponse.json({ error: 'Active loan product not found.' }, { status: 404 });
@@ -28,8 +29,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ produ
       where: { id: productId },
       data: {
         recommendationStatus: form.recommendationStatus,
-        recommendationNote: form.recommendationStatus === 'EXCLUDED' ? form.note : null,
-        recommendationSourceUri: form.recommendationStatus === 'EXCLUDED' ? form.sourceUri || null : null,
+        recommendationEligibilityRules: form.applicantTypeRule === 'SINGLE_PARENT_ONLY'
+          ? { applicantType: 'SINGLE_PARENT_ONLY' }
+          : {},
+        recommendationNote: form.recommendationStatus === 'EXCLUDED' || form.applicantTypeRule !== 'ANY' ? form.note : null,
+        recommendationSourceUri: form.recommendationStatus === 'EXCLUDED' || form.applicantTypeRule !== 'ANY' ? form.sourceUri || null : null,
         recommendationReviewedAt: new Date(),
         recommendationReviewedById: access.identity.profile!.id,
       },

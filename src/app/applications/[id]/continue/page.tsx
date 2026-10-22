@@ -16,7 +16,13 @@ type Section = { title: string; note?: string; fields: Field[] };
 const controlClass = 'mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-slate-100';
 const localDateKey = () => { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`; };
 
-const relationshipOptions = [{ value: 'SINGLE', label: 'Single' }, { value: 'MARRIED_DE_FACTO', label: 'Married or De facto' }];
+const relationshipOptions = [
+  { value: 'NEVER_MARRIED', label: 'Never married' },
+  { value: 'MARRIED', label: 'Married' },
+  { value: 'DE_FACTO', label: 'De facto' },
+  { value: 'DIVORCED', label: 'Divorced' },
+  { value: 'WIDOWED', label: 'Widowed' },
+];
 const employmentOptions = [
   { value: 'FULL_TIME', label: 'Full-time' }, { value: 'PART_TIME', label: 'Part-time' },
   { value: 'CASUAL', label: 'Casual' }, { value: 'SELF_EMPLOYED', label: 'Self-employed' },
@@ -209,7 +215,7 @@ export default function ContinueApplicationPage() {
         const value = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '';
         return <label key={field.path} className={`block ${field.type === 'textarea' ? 'sm:col-span-2' : ''}`}><span className="text-sm font-semibold text-slate-700">{field.label}{field.required && <span className="ml-1 text-red-600">*</span>}</span>
           {field.type === 'textarea' ? <textarea value={value} onChange={event => setDetails(current => setValue(current, field.path, event.target.value))} placeholder={field.placeholder} rows={4} disabled={submitted} className={controlClass}/>
-            : field.type === 'select' ? <Select value={value} onValueChange={nextValue => setDetails(current => setValue(current, field.path, nextValue))} disabled={submitted}><SelectTrigger aria-required={field.required}><SelectValue placeholder="Select an option" /></SelectTrigger><SelectContent>{field.options?.map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>
+            : field.type === 'select' ? <Select value={value} onValueChange={nextValue => setDetails(current => setValue(current, field.path, nextValue))} disabled={submitted}><SelectTrigger aria-required={field.required}><SelectValue placeholder="Select an option" /></SelectTrigger><SelectContent>{[...(field.options ?? []), ...(field.path.endsWith('.maritalStatus') && value === 'SINGLE' ? [{ value: 'SINGLE', label: 'Single (saved earlier)' }] : []), ...(field.path.endsWith('.maritalStatus') && value === 'MARRIED_DE_FACTO' ? [{ value: 'MARRIED_DE_FACTO', label: 'Married or De facto (saved earlier)' }] : [])].map(option => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent></Select>
       : field.type === 'date' ? <DatePicker value={value} onChange={nextValue => setDetails(current => setValue(current, field.path, nextValue))} ariaLabel={field.label} maxDate={localDateKey()} disabled={submitted}/>
                 : <input type={field.type === 'positiveInteger' ? 'text' : field.type === 'number' ? 'number' : 'text'} inputMode={field.type === 'positiveInteger' ? 'numeric' : undefined} pattern={field.type === 'positiveInteger' ? '[1-9][0-9]*' : undefined} min={field.type === 'number' ? '0' : undefined} step={field.type === 'number' ? 'any' : undefined} value={value} onChange={event => setDetails(current => setValue(current, field.path, field.type === 'positiveInteger' ? cleanPositiveInteger(event.target.value) : event.target.value))} placeholder={field.placeholder} required={field.required} disabled={submitted} className={controlClass}/>}</label>;
       })}</div>

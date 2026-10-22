@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       select: {
         id: true, externalId: true, productName: true, description: true,
         recommendationStatus: true, recommendationNote: true, recommendationSourceUri: true, recommendationReviewedAt: true,
+        recommendationEligibilityRules: true,
         recommendationReviewedBy: { select: { fullName: true, email: true } },
         rawPayload: true, lender: { select: { name: true, logoUrl: true } },
         rates: { where: { isActive: true }, orderBy: { interestRate: 'asc' }, take: 3, select: { rateType: true, interestRate: true } },
@@ -60,6 +61,7 @@ export async function GET(request: Request) {
         productName: product.productName,
         description: product.description,
         recommendationStatus: product.recommendationStatus,
+        recommendationEligibilityRules: product.recommendationEligibilityRules,
         recommendationNote: product.recommendationNote,
         recommendationSourceUri: product.recommendationSourceUri,
         recommendationReviewedAt: product.recommendationReviewedAt?.toISOString() ?? null,
