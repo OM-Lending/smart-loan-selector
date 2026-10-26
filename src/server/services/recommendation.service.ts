@@ -182,7 +182,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
   const lenderDataAsOf = top.length ? new Date(Math.max(...top.map(x => x.candidate.lastObservedAt.getTime()))) : new Date();
   const inputSnapshot = {
     applicationVersion: 2, goal: app.goal,
-    property: { value: propertyValue.toFixed(2), postcode: app.propertyPostcode, type: app.propertyType, use: targetPurpose },
+    property: { value: propertyValue.toFixed(2), postcode: app.propertyPostcode, suburb: app.propertySuburb, state: app.propertyState, type: app.propertyType, use: targetPurpose },
     loan: { amount: loanAmount.toFixed(2), lvr: lvr.toFixed(2), repayment: targetRepayment, requestedInterestOnlyYears: requestedIOYears, requestedFixedYears },
     preferences: { rateType: targetRateType },
     promotionAnswers: jsonObject(app.promotionAnswers),

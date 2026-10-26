@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/lib/prisma';
 import { getAuthenticatedProfile } from '@/server/lib/auth';
+import { validateContinuationAddresses } from '@/server/services/continuation-addresses';
 
 const Params = z.object({ id: z.string().uuid() });
 const SaveBody = z.object({
@@ -72,6 +73,8 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     if (existing?.status === 'SUBMITTED' && existing.reviewStatus !== 'NEEDS_INFORMATION') {
       return NextResponse.json({ error: 'This application has already been submitted' }, { status: 409 });
     }
+    const addressErrors = validateContinuationAddresses(details, existing?.details);
+    if (addressErrors.length) return NextResponse.json({ error: addressErrors.join(' ') }, { status: 400 });
     const resolvedQuoteId = quoteId ?? existing?.selectedQuoteId;
     if (!resolvedQuoteId) return NextResponse.json({ error: 'Choose a product before continuing' }, { status: 400 });
     const quote = await prisma.applicationQuote.findFirst({ where: { id: resolvedQuoteId, applicationId: id }, select: { id: true } });

@@ -50,6 +50,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       propertyStatus: application.propertyStatus,
       propertyType: application.propertyType,
       propertyPostcode: application.propertyPostcode,
+      propertySuburb: application.propertySuburb,
+      propertyState: application.propertyState,
       purchasePrice: application.purchasePrice?.toString() ?? null,
       deposit: application.deposit?.toString() ?? null,
       refinanceGoal: application.refinanceGoal,

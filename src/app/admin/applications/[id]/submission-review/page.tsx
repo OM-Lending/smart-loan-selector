@@ -29,7 +29,7 @@ function DetailValue({ value }: { value: unknown }) {
   if (value === null || value === undefined || value === '') return <span className="text-slate-400">Not provided</span>;
   if (typeof value === 'boolean') return <span>{value ? 'Yes' : 'No'}</span>;
   if (Array.isArray(value)) return value.length ? <ul className="mt-1 space-y-1">{value.map((item, index) => <li key={index} className="rounded-lg bg-white p-2"><DetailValue value={item} /></li>)}</ul> : <span>None</span>;
-  if (typeof value === 'object') return <dl className="mt-2 grid gap-2 sm:grid-cols-2">{Object.entries(record(value)).map(([key, item]) => <div key={key} className="rounded-lg bg-white p-2"><dt className="text-xs font-medium text-slate-500">{humanize(key)}</dt><dd className="mt-1 break-words text-sm text-slate-800"><DetailValue value={item} /></dd></div>)}</dl>;
+  if (typeof value === 'object') return <dl className="mt-2 grid gap-2 sm:grid-cols-2">{Object.entries(record(value)).filter(([key]) => key !== 'selection' && !key.endsWith('Selection')).map(([key, item]) => <div key={key} className="rounded-lg bg-white p-2"><dt className="text-xs font-medium text-slate-500">{humanize(key)}</dt><dd className="mt-1 break-words text-sm text-slate-800"><DetailValue value={item} /></dd></div>)}</dl>;
   return <span>{typeof value === 'string' && /^[A-Z0-9_]+$/.test(value) ? humanize(value) : String(value)}</span>;
 }
 

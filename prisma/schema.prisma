@@ -51,6 +51,18 @@ enum LoanGoal {
   REFINANCE
 }
 
+enum AustralianState {
+  ACT
+  NSW
+  NT
+  QLD
+  SA
+  TAS
+  VIC
+  WA
+  OT
+}
+
 enum RepaymentStructure {
   P_AND_I
   INTEREST_ONLY
@@ -440,14 +452,16 @@ model Application {
   userId String @map("user_id") @db.Uuid
 
   goal             LoanGoal
-  buySituation     String?  @map("buy_situation")
-  isFirstHomeBuyer Boolean? @map("is_first_home_buyer")
-  propertyUse      String?  @map("property_use")
-  propertyStatus   String?  @map("property_status")
-  propertyType     String?  @map("property_type")
-  propertyPostcode String?  @map("property_postcode")
-  purchasePrice    Decimal? @map("purchase_price") @db.Decimal(12, 2)
-  deposit          Decimal? @map("deposit") @db.Decimal(12, 2)
+  buySituation     String?          @map("buy_situation")
+  isFirstHomeBuyer Boolean?         @map("is_first_home_buyer")
+  propertyUse      String?          @map("property_use")
+  propertyStatus   String?          @map("property_status")
+  propertyType     String?          @map("property_type")
+  propertyPostcode String?          @map("property_postcode")
+  propertySuburb   String?          @map("property_suburb") @db.VarChar(100)
+  propertyState    AustralianState? @map("property_state")
+  purchasePrice    Decimal?         @map("purchase_price") @db.Decimal(12, 2)
+  deposit          Decimal?         @map("deposit") @db.Decimal(12, 2)
 
   refinanceGoal        String?  @map("refinance_goal")
   cashOutPurpose       String?  @map("cash_out_purpose")

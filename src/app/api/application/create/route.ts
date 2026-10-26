@@ -3,6 +3,8 @@ import { prisma } from '@/server/lib/prisma';
 import { getAuthenticatedProfile } from '@/server/lib/auth';
 import { randomUUID } from 'node:crypto';
 import { ApplicationSchema } from '@/lib/validations/application';
+import { validateAddressSelection } from '@/server/services/address.service';
+import { checkPropertyLocationSelection } from '@/server/lib/property-location-selection';
 import { 
   generateRecommendations, 
   NotFoundError, 
@@ -35,6 +37,14 @@ export async function POST(request: Request) {
     }
 
     const validData = validationResult.data;
+    if (validData.goal === 'BUY') {
+      const locationError = checkPropertyLocationSelection({ postcode: validData.propertyPostcode, suburb: validData.propertySuburb, state: validData.propertyState }, validData.propertyLocationSelection, process.env.GEOAPIFY_API_KEY);
+      if (locationError) return NextResponse.json({ error: locationError, details: { propertyPostcode: [locationError] } }, { status: 400 });
+    }
+    if (validData.goal === 'REFINANCE') {
+      const addressError = validateAddressSelection(validData.propertyAddress, validData.propertyAddressSelection);
+      if (addressError) return NextResponse.json({ error: addressError, details: { propertyAddress: [addressError] } }, { status: 400 });
+    }
     const normalizedEmail = validData.email.trim().toLowerCase();
     if (!identity.emailVerified || identity.email !== normalizedEmail) {
       return NextResponse.json(
@@ -86,6 +96,8 @@ export async function POST(request: Request) {
           propertyStatus: applicationData.propertyStatus,
           propertyType: applicationData.propertyType,
           propertyPostcode: applicationData.propertyPostcode,
+          propertySuburb: applicationData.goal === 'BUY' ? applicationData.propertySuburb : undefined,
+          propertyState: applicationData.goal === 'BUY' ? applicationData.propertyState : undefined,
           purchasePrice: applicationData.purchasePrice,
           deposit: applicationData.deposit,
           refinanceGoal: applicationData.refinanceGoal,

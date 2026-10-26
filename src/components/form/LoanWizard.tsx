@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Home, RefreshCw, Minus, Plus } from 'lucide-react';
 
@@ -11,6 +11,10 @@ import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { CurrencyInput } from '@/components/ui/currency-input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { AddressInput } from '@/components/form/AddressInput';
+import { PropertyLocationInput } from '@/components/form/PropertyLocationInput';
 
 const STEP_URLS = ['your-goal', 'property-details', 'loan-preferences', 'personal-profile', 'contact-details'];
 
@@ -24,9 +28,9 @@ export function LoanWizard() {
 
   const {
     register,
+    control,
     handleSubmit,
     setValue,
-    watch,
     trigger,
     formState: { errors, isSubmitting }
   } = useForm<ApplicationFormInput, unknown, ApplicationPayload>({
@@ -45,7 +49,7 @@ export function LoanWizard() {
     },
   });
 
-  const formValues = watch();
+  const formValues = useWatch({ control });
 
   const updateUrlAndStep = (newStep: number) => {
     const queryName = STEP_URLS[newStep - 1];
@@ -60,13 +64,6 @@ export function LoanWizard() {
     if (val < 0.01) val = 0.01;
     if (val > 99.99) val = 99.99;
     setValue('currentInterestRate', Number(val.toFixed(2)), { shouldValidate: true });
-  };
-
-  const handleNumberInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    if (val.length > 1 && val.startsWith('0') && !val.startsWith('0.')) {
-      e.target.value = val.replace(/^0+/, '');
-    }
   };
 
   const handleDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -99,9 +96,9 @@ export function LoanWizard() {
       isStepValid = await trigger(['goal']);
     } else if (step === 2) {
       if (formValues.goal === 'BUY') {
-        isStepValid = await trigger(['buySituation', 'isFirstHomeBuyer', 'propertyUse', 'propertyStatus', 'propertyType', 'propertyPostcode', 'purchasePrice', 'deposit']);
+        isStepValid = await trigger(['buySituation', 'isFirstHomeBuyer', 'propertyUse', 'propertyStatus', 'propertyType', 'propertyPostcode', 'propertySuburb', 'propertyState', 'propertyLocationSelection', 'purchasePrice', 'deposit']);
       } else {
-        isStepValid = await trigger(['refinanceGoal', 'cashOutPurpose', 'propertyUse', 'propertyType', 'propertyAddress', 'currentLender', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
+        isStepValid = await trigger(['refinanceGoal', 'cashOutPurpose', 'propertyUse', 'propertyType', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
       }
     } else if (step === 3) {
       isStepValid = await trigger(['repaymentStructure', 'interestOnlyYears', 'ratePreference', 'fixedYears']);
@@ -247,7 +244,13 @@ export function LoanWizard() {
 
               <div>
                 <Label className="text-base font-bold mb-2 block">Property Location</Label>
-                <Input type="text" placeholder="Australian Postcode e.g. 2000" maxLength={4} {...register('propertyPostcode')} />
+                <PropertyLocationInput postcode={formValues.propertyPostcode ?? ''} suburb={formValues.propertySuburb ?? ''} state={typeof formValues.propertyState === 'string' ? formValues.propertyState : ''} selection={formValues.propertyLocationSelection} invalid={Boolean(errors.propertyPostcode)} onChange={(location, selection) => {
+                  setValue('propertyPostcode', location.postcode, { shouldDirty: true });
+                  setValue('propertySuburb', location.suburb, { shouldDirty: true });
+                  setValue('propertyState', location.state, { shouldDirty: true });
+                  setValue('propertyLocationSelection', selection, { shouldDirty: true });
+                  void trigger(['propertyPostcode', 'propertySuburb', 'propertyState', 'propertyLocationSelection']);
+                }} />
                 {errors.propertyPostcode && <p className="text-red-500 text-sm mt-1">{errors.propertyPostcode.message}</p>}
               </div>
 
@@ -256,7 +259,7 @@ export function LoanWizard() {
                   <Label className="text-base font-bold mb-2 block">Expected purchase price</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                    <Input type="number" className="pl-7" placeholder="0" {...register('purchasePrice', { onChange: handleNumberInput })} />
+                    <Controller name="purchasePrice" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Expected purchase price" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
                   </div>
                   {errors.purchasePrice && <p className="text-red-500 text-sm mt-1">{errors.purchasePrice.message}</p>}
                 </div>
@@ -264,7 +267,7 @@ export function LoanWizard() {
                   <Label className="text-base font-bold mb-2 block">Available deposit</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                    <Input type="number" className="pl-7" placeholder="0" {...register('deposit', { onChange: handleNumberInput })} />
+                    <Controller name="deposit" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Available deposit" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
                   </div>
                   {errors.deposit && <p className="text-red-500 text-sm mt-1">{errors.deposit.message}</p>}
                 </div>
@@ -310,22 +313,22 @@ export function LoanWizard() {
 
               <div>
                 <Label className="text-base font-bold mb-2 block">Property Address</Label>
-                <Input type="text" placeholder="Full property address" {...register('propertyAddress')} />
+                <AddressInput value={formValues.propertyAddress ?? ''} selection={formValues.propertyAddressSelection} label="Property address" invalid={Boolean(errors.propertyAddress)} onChange={(address, selection) => {
+                  setValue('propertyAddress', address, { shouldDirty: true });
+                  setValue('propertyAddressSelection', selection, { shouldDirty: true });
+                  void trigger(['propertyAddress', 'propertyAddressSelection']);
+                }} />
+                {errors.propertyAddress && <p className="mt-1 text-sm text-red-500">{errors.propertyAddress.message}</p>}
               </div>
 
               <div>
                 <Label className="text-base font-bold mb-2 block">Who is your current lender?</Label>
-                <Input 
-                  type="text" 
-                  list="lenders-list" 
-                  placeholder="Search lender or type 'Other'" 
-                  {...register('currentLender')}
-                />
-                <datalist id="lenders-list">
-                  {QUESTIONNAIRE.lenders.map(lender => (
-                    <option key={lender} value={lender} />
-                  ))}
-                </datalist>
+                <Controller name="currentLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={field.onChange}>
+                  <SelectTrigger ref={field.ref} onBlur={field.onBlur} aria-label="Current lender" aria-invalid={Boolean(errors.currentLender)}><SelectValue placeholder="Select your current lender" /></SelectTrigger>
+                  <SelectContent>{QUESTIONNAIRE.lenders.map(lender => <SelectItem key={lender} value={lender}>{lender}</SelectItem>)}</SelectContent>
+                </Select>} />
+                <p className="mt-2 text-xs text-slate-500">Select Other if your lender is not listed.</p>
+                {errors.currentLender && <p className="mt-1 text-sm text-red-500">{errors.currentLender.message}</p>}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t">
@@ -333,15 +336,17 @@ export function LoanWizard() {
                   <Label className="text-base font-bold mb-2 block">Estimated property value</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                    <Input type="number" className="pl-7" placeholder="0" {...register('propertyValue', { onChange: handleNumberInput })} />
+                    <Controller name="propertyValue" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Estimated property value" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
                   </div>
+                  {errors.propertyValue && <p className="mt-1 text-sm text-red-500">{errors.propertyValue.message}</p>}
                 </div>
                 <div>
                   <Label className="text-base font-bold mb-2 block">Current loan balance</Label>
                   <div className="relative">
                     <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                    <Input type="number" className="pl-7" placeholder="0" {...register('currentLoanBalance', { onChange: handleNumberInput })} />
+                    <Controller name="currentLoanBalance" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Current loan balance" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
                   </div>
+                  {errors.currentLoanBalance && <p className="mt-1 text-sm text-red-500">{errors.currentLoanBalance.message}</p>}
                 </div>
               </div>
 
@@ -462,7 +467,7 @@ export function LoanWizard() {
                    <Label className="text-base font-bold mb-2 block">Gross Annual Salary</Label>
                    <div className="relative">
                      <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                     <Input type="number" className="pl-7" placeholder="Before tax" {...register('grossAnnualSalary', { onChange: handleNumberInput })} />
+                     <Controller name="grossAnnualSalary" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="Before tax" aria-label="Gross annual salary" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} fractionDigits={0} />} />
                    </div>
                    {errors.grossAnnualSalary && <p className="text-red-500 text-sm mt-1">{errors.grossAnnualSalary.message}</p>}
                  </div>
@@ -499,7 +504,7 @@ export function LoanWizard() {
                        <Label className="text-sm font-semibold mb-2 block text-slate-600">Gross Salary</Label>
                        <div className="relative">
                          <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                         <Input type="number" className="pl-7" placeholder="Before tax" {...register('partnerGrossSalary', { onChange: handleNumberInput })} />
+                         <Controller name="partnerGrossSalary" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="Before tax" aria-label="Partner gross salary" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} fractionDigits={0} />} />
                        </div>
                      </div>
                    </div>
@@ -536,8 +541,9 @@ export function LoanWizard() {
                      <Label className="text-sm font-semibold mb-2 block text-slate-600">Total monthly repayment</Label>
                      <div className="relative">
                        <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                       <Input type="number" className="pl-7" placeholder="0" {...register('existingMonthlyRepayment', { onChange: handleNumberInput })} />
+                       <Controller name="existingMonthlyRepayment" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Total monthly repayment" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
                      </div>
+                  {errors.existingMonthlyRepayment && <p className="mt-1 text-sm text-red-500">{errors.existingMonthlyRepayment.message}</p>}
                    </div>
                  )}
                </div>
@@ -558,8 +564,9 @@ export function LoanWizard() {
                      <Label className="text-sm font-semibold mb-2 block text-slate-600">Credit card limit</Label>
                      <div className="relative">
                        <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                       <Input type="number" className="pl-7" placeholder="0" {...register('creditCardLimit', { onChange: handleNumberInput })} />
+                       <Controller name="creditCardLimit" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Credit card limit" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
                      </div>
+                  {errors.creditCardLimit && <p className="mt-1 text-sm text-red-500">{errors.creditCardLimit.message}</p>}
                    </div>
                  )}
                </div>
