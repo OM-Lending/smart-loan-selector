@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { QUESTIONNAIRE } from '@/config/questionnaire';
+import { AddressSelectionSchema, addressInputError } from '@/lib/validations/address';
+import { AUSTRALIAN_STATES, propertyLocationInputError } from '@/lib/property-location';
 
 const emptyToUndefinedNumber = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return undefined;
@@ -31,13 +34,18 @@ export const ApplicationSchema = z.object({
   propertyStatus: optionalChoice(['ESTABLISHED', 'NEW', 'VACANT_LAND'] as const),
   propertyType: optionalChoice(['HOUSE', 'TOWNHOUSE', 'APARTMENT'] as const),
   propertyPostcode: z.string().regex(/^\d{4}$/, 'Enter a valid 4-digit Australian postcode').optional().or(z.literal('')),
+  propertySuburb: z.string().trim().max(100).optional(),
+  propertyState: optionalChoice(AUSTRALIAN_STATES),
+  propertyLocationSelection: AddressSelectionSchema.optional(),
   purchasePrice: emptyToUndefinedNumber,
   deposit: emptyToUndefinedNumber,
   
   refinanceGoal: optionalChoice(['REDUCE_INTEREST', 'CASH_OUT'] as const),
   cashOutPurpose: z.string().optional(),
-  propertyAddress: z.string().optional(),
-  currentLender: z.string().optional(),
+  propertyAddress: z.string().trim().max(500).optional(),
+  propertyAddressSelection: AddressSelectionSchema.optional(),
+  currentLender: z.preprocess(value => value === '' || value === null ? undefined : value,
+    z.enum(QUESTIONNAIRE.lenders, { error: 'Select your current lender from the list' }).optional()),
   propertyValue: emptyToUndefinedNumber,
   currentLoanBalance: emptyToUndefinedNumber,
   currentInterestRate: emptyToUndefinedNumber,
@@ -71,18 +79,25 @@ export const ApplicationSchema = z.object({
 }).superRefine((data, context) => {
   if (!data.propertyUse) context.addIssue({ code: 'custom', path: ['propertyUse'], message: 'Choose how the property will be used' });
   if (data.goal === 'BUY') {
+    const locationError = propertyLocationInputError({ postcode: data.propertyPostcode, suburb: data.propertySuburb, state: data.propertyState }, data.propertyLocationSelection);
+    if (locationError) context.addIssue({ code: 'custom', path: ['propertyPostcode'], message: locationError });
     if (!data.purchasePrice || data.purchasePrice <= 0) context.addIssue({ code: 'custom', path: ['purchasePrice'], message: 'Enter a property price greater than zero' });
     if (data.deposit === undefined) context.addIssue({ code: 'custom', path: ['deposit'], message: 'Enter your deposit' });
     if (data.purchasePrice !== undefined && data.deposit !== undefined && data.deposit >= data.purchasePrice) {
       context.addIssue({ code: 'custom', path: ['deposit'], message: 'Deposit must be less than the property price' });
     }
   } else {
+    const addressError = addressInputError(data.propertyAddress, data.propertyAddressSelection);
+    if (addressError) context.addIssue({ code: 'custom', path: ['propertyAddress'], message: addressError });
+    if (!data.currentLender) context.addIssue({ code: 'custom', path: ['currentLender'], message: 'Select your current lender' });
     if (!data.propertyValue || data.propertyValue <= 0) context.addIssue({ code: 'custom', path: ['propertyValue'], message: 'Enter a property value greater than zero' });
     if (!data.currentLoanBalance || data.currentLoanBalance <= 0) context.addIssue({ code: 'custom', path: ['currentLoanBalance'], message: 'Enter your current loan balance' });
     if (data.propertyValue !== undefined && data.currentLoanBalance !== undefined && data.currentLoanBalance > data.propertyValue) {
       context.addIssue({ code: 'custom', path: ['currentLoanBalance'], message: 'Loan balance cannot exceed the property value' });
     }
   }
+  if (data.hasExistingLoans && !data.existingMonthlyRepayment) context.addIssue({ code: 'custom', path: ['existingMonthlyRepayment'], message: 'Enter your total monthly repayment greater than zero' });
+  if (data.hasCreditCard && !data.creditCardLimit) context.addIssue({ code: 'custom', path: ['creditCardLimit'], message: 'Enter your total credit card limit greater than zero' });
   if (data.repaymentStructure === 'INTEREST_ONLY' && !data.interestOnlyYears) {
     context.addIssue({ code: 'custom', path: ['interestOnlyYears'], message: 'Choose the interest-only period' });
   }

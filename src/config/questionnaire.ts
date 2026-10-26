@@ -67,5 +67,5 @@ export const QUESTIONNAIRE = {
     'Me Bank', 
     'HSBC', 
     'Other'
-  ]
+  ] as const
 };
