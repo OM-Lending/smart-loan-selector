@@ -1,12 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
+import { useUser } from '@clerk/nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Home, RefreshCw, Minus, Plus } from 'lucide-react';
 
-import { ApplicationSchema, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
+import { ApplicationSchema, LoanApplicationSchema, SignedInApplicationFormSchema, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,23 +20,37 @@ import { PropertyLocationInput } from '@/components/form/PropertyLocationInput';
 
 const STEP_URLS = ['your-goal', 'property-details', 'loan-preferences', 'personal-profile', 'contact-details'];
 
-export function LoanWizard() {
+type Account = { clerkUserId: string; hasProfile: boolean; email: string };
+
+export function LoanWizard({ account }: { account: Account | null }) {
   const router = useRouter();
+  const { user, isLoaded } = useUser();
   const searchParams = useSearchParams();
   const currentQuery = searchParams.get('q');
   const initialStep = Math.max(1, STEP_URLS.indexOf(currentQuery || '') + 1);
   
-  const [step, setStep] = useState(initialStep);
+  const [requestedStep, setStep] = useState(initialStep);
+  const [needsContactDetails, setNeedsContactDetails] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const saveInFlight = useRef(false);
+  const restoredOwner = useRef('');
+  const refreshedSession = useRef('');
+  const reuseProfile = Boolean(account?.hasProfile && !needsContactDetails);
+  const totalSteps = reuseProfile ? 4 : 5;
+  const step = Math.min(requestedStep, totalSteps);
+  const accountChanged = Boolean(isLoaded && user && account && user.id !== account.clerkUserId);
 
   const {
     register,
     control,
+    reset,
     handleSubmit,
     setValue,
     trigger,
     formState: { errors, isSubmitting }
   } = useForm<ApplicationFormInput, unknown, ApplicationPayload>({
-    resolver: zodResolver(ApplicationSchema),
+    resolver: zodResolver(reuseProfile ? SignedInApplicationFormSchema : ApplicationSchema),
     mode: 'onChange',
     defaultValues: {
       goal: undefined,
@@ -50,6 +66,41 @@ export function LoanWizard() {
   });
 
   const formValues = useWatch({ control });
+
+  useEffect(() => {
+    if (isLoaded && user?.primaryEmailAddress?.emailAddress) {
+      setValue('email', user.primaryEmailAddress.emailAddress, { shouldValidate: false });
+    }
+  }, [isLoaded, user?.primaryEmailAddress?.emailAddress, setValue]);
+
+  useEffect(() => {
+    if (isLoaded && user && !account && refreshedSession.current !== user.id) {
+      refreshedSession.current = user.id;
+      router.refresh();
+    }
+  }, [account, isLoaded, router, user]);
+
+  useEffect(() => {
+    if (!reuseProfile || !isLoaded || !user || user.id !== account?.clerkUserId || restoredOwner.current === user.id) return;
+    restoredOwner.current = user.id;
+    try {
+      if (sessionStorage.getItem('pending_quote_owner') !== user.id) return;
+      const raw = sessionStorage.getItem('pending_loan_data');
+      const parsed = LoanApplicationSchema.safeParse(raw ? JSON.parse(raw) : null);
+      if (parsed.success) reset({ ...parsed.data, firstName: '', lastName: '', email: user.primaryEmailAddress?.emailAddress ?? '', phone: '' });
+    } catch { /* An unreadable draft must not prevent a new quote. */ }
+  }, [account?.clerkUserId, isLoaded, reset, reuseProfile, user]);
+
+  useEffect(() => {
+    if (reuseProfile && currentQuery === 'contact-details') router.replace('?q=personal-profile', { scroll: false });
+  }, [currentQuery, reuseProfile, router]);
+
+  useEffect(() => {
+    if (!isSubmitting) return;
+    const preventExit = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', preventExit);
+    return () => window.removeEventListener('beforeunload', preventExit);
+  }, [isSubmitting]);
 
   const updateUrlAndStep = (newStep: number) => {
     const queryName = STEP_URLS[newStep - 1];
@@ -112,8 +163,55 @@ export function LoanWizard() {
   };
 
   const onSubmit = async (data: ApplicationPayload) => {
-    sessionStorage.setItem('pending_loan_data', JSON.stringify(data));
-    router.push('/sign-up');
+    if (saveInFlight.current) return;
+    setSaveError('');
+    setSessionExpired(false);
+    if (accountChanged) { setSaveError('Your signed-in account changed. Refresh this page before starting a new quote.'); return; }
+    if (!user) {
+      if (account) { setSessionExpired(true); setSaveError('Your session has expired. Log in again, then retry. Your answers remain on this page.'); return; }
+      try {
+        sessionStorage.removeItem('pending_quote_owner');
+        sessionStorage.setItem('pending_loan_data', JSON.stringify(data));
+        router.push('/sign-up');
+      } catch { setSaveError('Browser storage is unavailable. Enable it before continuing to email verification. Your answers remain on this page.'); }
+      return;
+    }
+    saveInFlight.current = true;
+    try {
+      const payload = reuseProfile ? LoanApplicationSchema.parse(data) : data;
+      // Keep a recoverable, account-bound draft while the request is running.
+      try {
+        sessionStorage.setItem('pending_loan_data', JSON.stringify(payload));
+        sessionStorage.setItem('pending_quote_owner', user.id);
+      } catch { /* Saving to the server can continue if browser storage is full. */ }
+      const response = await fetch('/api/application/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+      });
+      const result = await response.json() as { success?: boolean; applicationId?: string; recommendation?: unknown; recommendationStatus?: string; error?: string; diagnostic?: { code?: string } };
+      if (response.status === 401) {
+        setSessionExpired(true);
+        throw new Error('Your session has expired. Log in again, then retry. Your answers remain on this page.');
+      }
+      if (result.diagnostic?.code === 'CONTACT_DETAILS_REQUIRED') {
+        setNeedsContactDetails(true); setStep(5);
+        throw new Error('Please complete your contact details once to finish setting up your account.');
+      }
+      if (!response.ok || !result.success || !result.applicationId) throw new Error(result.error || 'Could not save your quote. Please retry.');
+      // A storage failure after a successful response must not invite a second
+      // submission of an application that is already saved.
+      try {
+        localStorage.setItem('application_id', result.applicationId);
+        sessionStorage.removeItem('recommendation_results');
+        if (result.recommendation) sessionStorage.setItem('recommendation_results', JSON.stringify(result.recommendation));
+        sessionStorage.setItem('recommendation_status', result.recommendationStatus || 'PENDING');
+        sessionStorage.removeItem('pending_loan_data');
+        sessionStorage.removeItem('pending_quote_owner');
+      } catch { /* The application is saved; navigate using the returned ID. */ }
+      router.replace(`/applications/${result.applicationId}/recommendations`);
+      router.refresh();
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Could not save your quote. Please retry.');
+    } finally { saveInFlight.current = false; }
   };
 
   const handleBack = () => updateUrlAndStep(Math.max(1, step - 1));
@@ -131,7 +229,7 @@ export function LoanWizard() {
       <div className="mb-8 flex items-center justify-between border-b pb-4">
         <div>
           <span className="text-xs font-bold uppercase tracking-wider text-primary">
-            Step {step} of 5
+            Step {step} of {totalSteps}
           </span>
           <h3 className="text-sm font-medium text-muted-foreground mt-1">
             {step === 1 && 'Your Goal'}
@@ -143,7 +241,12 @@ export function LoanWizard() {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="flex-1 flex flex-col">
+      {accountChanged && <p role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Your signed-in account changed. <a href="/get-started" className="font-semibold underline">Start a new quote for this account</a>.</p>}
+      {saveError && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{saveError}</p>{sessionExpired && <Link href="/login?next=%2Fdashboard" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold underline">Log in in a new tab</Link>}</div>}
+      <form onSubmit={event => {
+        if (step < totalSteps) { event.preventDefault(); void handleNext(); return; }
+        void handleSubmit(onSubmit)(event);
+      }} className="flex-1 flex flex-col">
         <div className="flex-1">
           
           {/* ================= STEP 1 ================= */}
@@ -579,7 +682,7 @@ export function LoanWizard() {
              <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-300">
                <div className="text-center mb-8">
                  <h2 className="text-2xl font-bold text-foreground">Your home loan options await!</h2>
-                 <p className="text-slate-500 mt-2 text-sm">Where should we send your preliminary rate match?</p>
+                 <p className="text-slate-500 mt-2 text-sm">{user ? 'Complete these contact details once for your account.' : 'Where should we send your preliminary rate match?'}</p>
                </div>
 
                <div className="grid grid-cols-2 gap-4">
@@ -597,7 +700,7 @@ export function LoanWizard() {
 
                <div>
                  <Label className="mb-2 block font-semibold">Email Address</Label>
-                 <Input type="email" placeholder="hello@example.com.au" {...register('email')} disabled={isSubmitting} className={errors.email ? 'border-red-500' : ''} />
+                 <Input type="email" placeholder="hello@example.com.au" {...register('email')} readOnly={Boolean(user)} disabled={isSubmitting} className={errors.email ? 'border-red-500' : ''} />
                  {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email.message}</p>}
                </div>
                <div>
@@ -630,13 +733,13 @@ export function LoanWizard() {
             <Button type="button" variant="ghost" onClick={() => router.push('/')} disabled={isSubmitting}>Cancel</Button>
           )}
           
-          {step < 5 && (
-            <Button type="button" onClick={handleNext} className="px-8">Continue</Button>
+          {step < totalSteps && (
+            <Button type="button" onClick={handleNext} disabled={isSubmitting} className="px-8">Continue</Button>
           )}
 
-          {step === 5 && (
-            <Button type="submit" disabled={isSubmitting} className="px-8 bg-primary hover:bg-primary/90 text-white font-bold">
-              Continue to email verification
+          {step === totalSteps && (
+            <Button type="submit" disabled={isSubmitting || !isLoaded || accountChanged} className="px-8 bg-primary hover:bg-primary/90 text-white font-bold">
+              {reuseProfile || user ? 'Get my matches' : 'Continue to email verification'}
             </Button>
           )}
         </div>

@@ -25,7 +25,7 @@ const optionalChoice = <T extends readonly [string, ...string[]]>(values: T) => 
   z.enum(values).optional(),
 );
 
-export const ApplicationSchema = z.object({
+const ApplicationFields = z.object({
   goal: z.enum(['BUY', 'REFINANCE'], { error: 'Loan goal is required' }),
   buySituation: optionalChoice(['EXPLORING', 'WITHIN_3_TO_6_MONTHS', 'MADE_OFFER', 'EXCHANGED'] as const),
   isFirstHomeBuyer: z.boolean().nullable().optional(),
@@ -72,11 +72,18 @@ export const ApplicationSchema = z.object({
   hasCreditCard: z.boolean().nullable().optional(),
   creditCardLimit: emptyToUndefinedNumber,
   
+});
+
+export const ContactDetailsSchema = z.object({
   firstName: z.string().trim().min(2, 'First name must be at least 2 characters'),
   lastName: z.string().trim().min(2, 'Last name must be at least 2 characters'),
   email: z.string().trim().email('Enter a valid email address'),
   phone: z.string().trim().regex(/^4\d{8}$/, 'Enter a 9-digit Australian mobile number after +61')
-}).superRefine((data, context) => {
+});
+export type ContactDetails = z.output<typeof ContactDetailsSchema>;
+
+type LoanDetails = z.output<typeof ApplicationFields>;
+function validateLoanDetails(data: LoanDetails, context: z.RefinementCtx) {
   if (!data.propertyUse) context.addIssue({ code: 'custom', path: ['propertyUse'], message: 'Choose how the property will be used' });
   if (data.goal === 'BUY') {
     const locationError = propertyLocationInputError({ postcode: data.propertyPostcode, suburb: data.propertySuburb, state: data.propertyState }, data.propertyLocationSelection);
@@ -104,7 +111,15 @@ export const ApplicationSchema = z.object({
   if (data.ratePreference === 'FIXED' && !data.fixedYears) {
     context.addIssue({ code: 'custom', path: ['fixedYears'], message: 'Choose the fixed-rate period' });
   }
-});
+}
+
+export const LoanApplicationSchema = ApplicationFields.superRefine(validateLoanDetails);
+export const ApplicationSchema = ApplicationFields.extend(ContactDetailsSchema.shape).superRefine(validateLoanDetails);
+// Keep the contact inputs registered if the session changes while filling the
+// questionnaire, without requiring them for an existing account's new quote.
+export const SignedInApplicationFormSchema = ApplicationFields.extend({
+  firstName: z.string(), lastName: z.string(), email: z.string(), phone: z.string(),
+}).superRefine(validateLoanDetails);
 
 export type ApplicationFormInput = z.input<typeof ApplicationSchema>;
 export type ApplicationPayload = z.output<typeof ApplicationSchema>;
