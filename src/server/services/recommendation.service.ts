@@ -3,12 +3,13 @@ import { prisma } from '@/server/lib/prisma';
 import { Decimal } from 'decimal.js';
 import { RatePreference, RepaymentStructure, Prisma, QuoteEligibilityStatus } from '@prisma/client';
 import { assessPromotions, projectNetCost } from '@/server/services/promotions/promotion-evaluator';
+import { isExcludedCdrLender } from '@/server/services/cdr/cdr-lender-policy';
 
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
 
 const RULES_VERSION = 'mortgage-v2.0.0';
-const ENGINE_VERSION = 'recommendation-engine-v10';
+const ENGINE_VERSION = 'recommendation-engine-v11';
 const COMPARISON_HORIZON_MONTHS = 60;
 const D = (value: unknown) => new Decimal(value === null || value === undefined ? 0 : String(value));
 // Older database rows were persisted directly from CDR RateString (ratio
@@ -131,7 +132,8 @@ export async function generateRecommendations({ applicationId, userId }: { appli
     } } },
   });
 
-  const assessed = rates.map(candidate => {
+  // Apply exclusions immediately, even before the next sync deactivates old rows.
+  const assessed = rates.filter(candidate => !isExcludedCdrLender(candidate.product.lender.name)).map(candidate => {
     const eligibility = assess(candidate, app, loanAmount, lvr, requestedIOYears, requestedFixedYears);
     const rate = asPercentagePoints(candidate.interestRate);
     const repayment = calculateMonthlyRepayment(loanAmount, rate, 30, targetRepayment);
