@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { AddressSelectionSchema, addressInputError } from '@/lib/validations/address';
 import { AUSTRALIAN_STATES, propertyLocationInputError } from '@/lib/property-location';
+import { normalizeRelationshipStatus, RELATIONSHIP_STATUSES } from '@/lib/relationship-status';
 
 const emptyToUndefinedNumber = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return undefined;
@@ -72,7 +73,7 @@ const ApplicationFields = z.object({
   employmentStatus: z.enum(['FULL_TIME', 'PART_TIME', 'CASUAL'], { error: 'Choose a valid employment status' }),
   employmentStartDate: dateMMSchema,
   grossAnnualSalary: strictSalary,
-  relationshipStatus: z.enum(['NEVER_MARRIED', 'MARRIED', 'DE_FACTO', 'DIVORCED', 'WIDOWED'], { error: 'Choose a valid relationship status' }),
+  relationshipStatus: z.enum(RELATIONSHIP_STATUSES, { error: 'Choose a valid marital status' }),
   partnerEmploymentStatus: optionalChoice(['FULL_TIME', 'PART_TIME', 'CASUAL'] as const),
   partnerEmploymentStartDate: dateMMSchema,
   partnerGrossSalary: emptyToUndefinedNumber,
@@ -107,6 +108,7 @@ export const QuestionnaireDraftSchema = ApplicationFields.partial().extend({
 export function normalizeApplicationAnswers<T extends object>(input: T): T {
   const data: Record<string, unknown> = Object.fromEntries(Object.entries(input));
   const clear = (keys: string[]) => { for (const key of keys) delete data[key]; };
+  if ('relationshipStatus' in data) data.relationshipStatus = normalizeRelationshipStatus(data.relationshipStatus);
   if (data.goal === 'BUY') {
     clear(['refinanceGoal', 'cashOutPurpose', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'currentLenderOther', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
   } else if (data.goal === 'REFINANCE') {

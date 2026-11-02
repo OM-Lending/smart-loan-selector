@@ -1,3 +1,5 @@
+import { RELATIONSHIP_OPTIONS } from '@/lib/relationship-status';
+
 export const QUESTIONNAIRE = {
   buySituations: [
     { id: 'EXPLORING', label: 'Just exploring options' },
@@ -38,13 +40,7 @@ export const QUESTIONNAIRE = {
     { id: 'PART_TIME', label: 'Part-time' },
     { id: 'CASUAL', label: 'Casual' },
   ] as const,
-  relationshipStatuses: [
-    { id: 'NEVER_MARRIED', label: 'Never married' },
-    { id: 'MARRIED', label: 'Married' },
-    { id: 'DE_FACTO', label: 'De facto' },
-    { id: 'DIVORCED', label: 'Divorced' },
-    { id: 'WIDOWED', label: 'Widowed' },
-  ] as const,
+  relationshipStatuses: RELATIONSHIP_OPTIONS,
   // Standardized Boolean Options
   booleanOptions: [
     { value: true, label: 'Yes' },

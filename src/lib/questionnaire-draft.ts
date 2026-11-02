@@ -1,4 +1,4 @@
-import { QuestionnaireDraftSchema, type ApplicationFormInput } from '@/lib/validations/application';
+import { normalizeApplicationAnswers, QuestionnaireDraftSchema, type ApplicationFormInput } from '@/lib/validations/application';
 
 const DRAFT_KEY = 'questionnaire_draft';
 
@@ -17,8 +17,9 @@ export function readQuestionnaireDraft(owner: string | null, verifiedEmail?: str
     if (draft.owner !== owner && !ownVerifiedGuestDraft) return null;
     // A partially entered invalid number should not discard all other answers.
     const values: Record<string, unknown> = {};
+    const answers = normalizeApplicationAnswers(draft.values);
     for (const [key, schema] of Object.entries(QuestionnaireDraftSchema.shape)) {
-      const field = schema.safeParse(draft.values[key]);
+      const field = schema.safeParse(answers[key]);
       if (field.success && field.data !== undefined) values[key] = field.data;
     }
     const parsed = QuestionnaireDraftSchema.safeParse(values);

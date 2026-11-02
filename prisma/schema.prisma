@@ -80,14 +80,10 @@ enum EmploymentStatus {
 }
 
 enum RelationshipStatus {
-  NEVER_MARRIED
+  SINGLE
   MARRIED
   DE_FACTO
-  DIVORCED
-  WIDOWED
-  // Retained so existing applications remain readable. New submissions only
-  // accept the five current questionnaire values.
-  SINGLE
+  // Historical combined answer only; new forms require one of the three above.
   MARRIED_DE_FACTO
 }
 
