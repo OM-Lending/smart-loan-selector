@@ -46,6 +46,7 @@ const ApplicationFields = z.object({
   propertyAddressSelection: AddressSelectionSchema.optional(),
   currentLender: z.preprocess(value => value === '' || value === null ? undefined : value,
     z.enum(QUESTIONNAIRE.lenders, { error: 'Select your current lender from the list' }).optional()),
+  currentLenderOther: z.string().trim().max(120, 'Lender name must be 120 characters or fewer').optional(),
   propertyValue: emptyToUndefinedNumber,
   currentLoanBalance: emptyToUndefinedNumber,
   currentInterestRate: emptyToUndefinedNumber,
@@ -97,6 +98,9 @@ function validateLoanDetails(data: LoanDetails, context: z.RefinementCtx) {
     const addressError = addressInputError(data.propertyAddress, data.propertyAddressSelection);
     if (addressError) context.addIssue({ code: 'custom', path: ['propertyAddress'], message: addressError });
     if (!data.currentLender) context.addIssue({ code: 'custom', path: ['currentLender'], message: 'Select your current lender' });
+    if (data.currentLender === 'Other' && (!data.currentLenderOther || data.currentLenderOther.length < 2)) {
+      context.addIssue({ code: 'custom', path: ['currentLenderOther'], message: 'Enter your lender name (at least 2 characters)' });
+    }
     if (!data.propertyValue || data.propertyValue <= 0) context.addIssue({ code: 'custom', path: ['propertyValue'], message: 'Enter a property value greater than zero' });
     if (!data.currentLoanBalance || data.currentLoanBalance <= 0) context.addIssue({ code: 'custom', path: ['currentLoanBalance'], message: 'Enter your current loan balance' });
     if (data.propertyValue !== undefined && data.currentLoanBalance !== undefined && data.currentLoanBalance > data.propertyValue) {

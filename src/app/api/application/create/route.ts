@@ -97,7 +97,11 @@ export async function POST(request: Request) {
           refinanceGoal: applicationData.refinanceGoal,
           cashOutPurpose: applicationData.cashOutPurpose,
           propertyAddress: applicationData.propertyAddress,
-          currentLender: applicationData.currentLender,
+          // Store the actual lender name for broker review, rather than the
+          // form's "Other" sentinel. Custom names are validated by the schema.
+          currentLender: applicationData.goal === 'REFINANCE'
+            ? applicationData.currentLender === 'Other' ? applicationData.currentLenderOther : applicationData.currentLender
+            : undefined,
           propertyValue: applicationData.propertyValue,
           currentLoanBalance: applicationData.currentLoanBalance,
           currentInterestRate: applicationData.currentInterestRate,

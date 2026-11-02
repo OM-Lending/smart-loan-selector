@@ -149,7 +149,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
       if (formValues.goal === 'BUY') {
         isStepValid = await trigger(['buySituation', 'isFirstHomeBuyer', 'propertyUse', 'propertyStatus', 'propertyType', 'propertyPostcode', 'propertySuburb', 'propertyState', 'propertyLocationSelection', 'purchasePrice', 'deposit']);
       } else {
-        isStepValid = await trigger(['refinanceGoal', 'cashOutPurpose', 'propertyUse', 'propertyType', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
+        isStepValid = await trigger(['refinanceGoal', 'cashOutPurpose', 'propertyUse', 'propertyType', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'currentLenderOther', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
       }
     } else if (step === 3) {
       isStepValid = await trigger(['repaymentStructure', 'interestOnlyYears', 'ratePreference', 'fixedYears']);
@@ -426,12 +426,22 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
               <div>
                 <Label className="text-base font-bold mb-2 block">Who is your current lender?</Label>
-                <Controller name="currentLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={field.onChange}>
+                <Controller name="currentLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={value => {
+                  field.onChange(value);
+                  if (value !== 'Other') setValue('currentLenderOther', '', { shouldDirty: true, shouldValidate: true });
+                }}>
                   <SelectTrigger ref={field.ref} onBlur={field.onBlur} aria-label="Current lender" aria-invalid={Boolean(errors.currentLender)}><SelectValue placeholder="Select your current lender" /></SelectTrigger>
                   <SelectContent>{QUESTIONNAIRE.lenders.map(lender => <SelectItem key={lender} value={lender}>{lender}</SelectItem>)}</SelectContent>
                 </Select>} />
                 <p className="mt-2 text-xs text-slate-500">Select Other if your lender is not listed.</p>
                 {errors.currentLender && <p className="mt-1 text-sm text-red-500">{errors.currentLender.message}</p>}
+                {formValues.currentLender === 'Other' && (
+                  <div className="mt-4">
+                    <Label htmlFor="current-lender-other" className="mb-2 block font-semibold">Lender name <span aria-hidden="true">*</span></Label>
+                    <Input id="current-lender-other" placeholder="Enter your lender name" maxLength={120} aria-required="true" aria-invalid={Boolean(errors.currentLenderOther)} aria-describedby={errors.currentLenderOther ? 'current-lender-other-error' : undefined} {...register('currentLenderOther')} />
+                    {errors.currentLenderOther && <p id="current-lender-other-error" className="mt-1 text-sm text-red-500">{errors.currentLenderOther.message}</p>}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t">
