@@ -4,21 +4,9 @@ import { fetchCDR, delay } from '@/server/lib/cdr-client';
 import { asCdrArray, asCdrObject, contentHash, normalizeCdrProduct, type CdrObject } from '@/server/services/cdr/cdr-normalizer';
 import { validateNormalizedProduct } from '@/server/services/cdr/cdr-validation';
 import { reconcilePromotionSourceSnapshots } from '@/server/services/promotions/promotion-source.service';
+import { isExcludedCdrLender, isSupportedCdrLender } from '@/server/services/cdr/cdr-lender-policy';
 
-const TARGET_BANKS = [
-  'Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank', 'Macquarie', 'ING',
-  'Bendigo', 'Bank of Queensland', 'BOQ', 'Bankwest', 'St.George', 'St George',
-  'Citi', 'AMP - My AMP', 'Qudos', 'Bank of China', 'BOC', 'La Trobe', 'Pepper', 'Think Tank', 'Brighten'
-];
 const BIG_4_NAMES = ['Westpac', 'NATIONAL AUSTRALIA BANK', 'ANZ', 'CommBank', 'Commonwealth Bank'];
-function normalizeBrandName(name: string) {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function matchesTargetBank(brandName: string) {
-  const normalizedName = ` ${normalizeBrandName(brandName)} `;
-  return TARGET_BANKS.some(target => normalizedName.includes(` ${normalizeBrandName(target)} `));
-}
 
 function buildCdrUrl(baseUri: string, path: string): string {
   const normalizedBase = baseUri.endsWith('/') ? baseUri : `${baseUri}/`;
@@ -50,7 +38,13 @@ async function fetchAllProductSummaries(baseUri: string): Promise<CdrObject[]> {
 export async function syncCdrProductsService() {
   const summaryData = await fetchCDR('https://api.cdr.gov.au/cdr-register/v1/banking/data-holders/brands/summary', { 'x-v': '1' });
   if (!summaryData?.data) throw new Error('Failed to fetch CDR brands');
-  const targetBrands = asCdrArray(summaryData.data).filter(brand => typeof brand.brandName === 'string' && matchesTargetBank(brand.brandName));
+  const targetBrands = asCdrArray(summaryData.data).filter(brand => typeof brand.brandName === 'string' && isSupportedCdrLender(brand.brandName));
+  // Retain historical products and quotes, but stop recommending excluded lenders.
+  const activeLenders = await prisma.lender.findMany({ where: { isActive: true }, select: { id: true, name: true } });
+  const excludedIds = activeLenders.filter(lender => isExcludedCdrLender(lender.name)).map(lender => lender.id);
+  if (excludedIds.length) {
+    await prisma.lender.updateMany({ where: { id: { in: excludedIds } }, data: { isActive: false } });
+  }
   let totalUpdated = 0;
 
   for (const brand of targetBrands) {
