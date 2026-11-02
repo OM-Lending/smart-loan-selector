@@ -2,6 +2,7 @@ const APP_LOCAL_STORAGE_KEYS = ['application_id'] as const;
 const APP_SESSION_STORAGE_KEYS = [
   'pending_loan_data',
   'pending_quote_owner',
+  'questionnaire_draft',
   'recommendation_results',
   'recommendation_status',
 ] as const;

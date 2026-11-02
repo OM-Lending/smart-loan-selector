@@ -8,7 +8,8 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Home, RefreshCw, Minus, Plus } from 'lucide-react';
 
-import { ApplicationSchema, LoanApplicationSchema, SignedInApplicationFormSchema, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
+import { ApplicationSchema, LoanApplicationSchema, SignedInApplicationFormSchema, normalizeApplicationAnswers, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
+import { clearQuestionnaireDraft, readQuestionnaireDraft, writeQuestionnaireDraft } from '@/lib/questionnaire-draft';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,6 +37,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
   const [sessionExpired, setSessionExpired] = useState(false);
   const saveInFlight = useRef(false);
   const restoredOwner = useRef('');
+  const hasInteracted = useRef(false);
   const refreshedSession = useRef('');
   const reuseProfile = Boolean(account?.hasProfile && !needsContactDetails);
   const totalSteps = reuseProfile ? 4 : 5;
@@ -46,12 +48,14 @@ export function LoanWizard({ account }: { account: Account | null }) {
     register,
     control,
     reset,
+    getValues,
+    subscribe,
     handleSubmit,
     setValue,
     trigger,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting, isDirty }
   } = useForm<ApplicationFormInput, unknown, ApplicationPayload>({
-    resolver: zodResolver(reuseProfile ? SignedInApplicationFormSchema : ApplicationSchema),
+    resolver: (values, context, options) => zodResolver(reuseProfile ? SignedInApplicationFormSchema : ApplicationSchema)(normalizeApplicationAnswers(values), context, options),
     mode: 'onChange',
     defaultValues: {
       goal: undefined,
@@ -82,15 +86,29 @@ export function LoanWizard({ account }: { account: Account | null }) {
   }, [account, isLoaded, router, user]);
 
   useEffect(() => {
-    if (!reuseProfile || !isLoaded || !user || user.id !== account?.clerkUserId || restoredOwner.current === user.id) return;
-    restoredOwner.current = user.id;
+    if (!isLoaded || accountChanged) return;
+    const owner = user?.id ?? null;
+    const ownerKey = owner ?? 'anonymous';
+    if (restoredOwner.current === ownerKey) return;
+    restoredOwner.current = ownerKey;
     try {
-      if (sessionStorage.getItem('pending_quote_owner') !== user.id) return;
-      const raw = sessionStorage.getItem('pending_loan_data');
-      const parsed = LoanApplicationSchema.safeParse(raw ? JSON.parse(raw) : null);
-      if (parsed.success) reset({ ...parsed.data, firstName: '', lastName: '', email: user.primaryEmailAddress?.emailAddress ?? '', phone: '' });
+      const draft = readQuestionnaireDraft(owner, user?.primaryEmailAddress?.verification.status === 'verified' ? user.primaryEmailAddress.emailAddress : undefined);
+      // A late Clerk response must never overwrite answers already being typed.
+      if (draft && !isDirty && !hasInteracted.current) reset({ firstName: '', lastName: '', email: '', phone: '', ...draft, ...(user ? { email: user.primaryEmailAddress?.emailAddress ?? '' } : {}) });
+      writeQuestionnaireDraft(owner, normalizeApplicationAnswers(getValues()));
     } catch { /* An unreadable draft must not prevent a new quote. */ }
-  }, [account?.clerkUserId, isLoaded, reset, reuseProfile, user]);
+  }, [accountChanged, getValues, isDirty, isLoaded, reset, user]);
+
+  useEffect(() => {
+    if (!isLoaded || accountChanged) return;
+    return subscribe({
+      formState: { values: true },
+      callback: ({ values }) => {
+        try { writeQuestionnaireDraft(user?.id ?? null, normalizeApplicationAnswers(values)); }
+        catch { /* Storage restrictions must not interrupt typing. */ }
+      },
+    });
+  }, [accountChanged, isLoaded, user?.id, subscribe]);
 
   useEffect(() => {
     if (reuseProfile && currentQuery === 'contact-details') router.replace('?q=personal-profile', { scroll: false });
@@ -163,6 +181,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
       if (account) { setSessionExpired(true); setSaveError('Your session has expired. Log in again, then retry. Your answers remain on this page.'); return; }
       try {
         sessionStorage.removeItem('pending_quote_owner');
+        // Replace the whole snapshot; never merge a previous application's answers.
         sessionStorage.setItem('pending_loan_data', JSON.stringify(data));
         router.push('/sign-up');
       } catch { setSaveError('Browser storage is unavailable. Enable it before continuing to email verification. Your answers remain on this page.'); }
@@ -198,6 +217,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
         sessionStorage.setItem('recommendation_status', result.recommendationStatus || 'PENDING');
         sessionStorage.removeItem('pending_loan_data');
         sessionStorage.removeItem('pending_quote_owner');
+        clearQuestionnaireDraft();
       } catch { /* The application is saved; navigate using the returned ID. */ }
       router.replace(`/applications/${result.applicationId}/recommendations`);
       router.refresh();
@@ -235,7 +255,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
       {accountChanged && <p role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Your signed-in account changed. <a href="/get-started" className="font-semibold underline">Start a new quote for this account</a>.</p>}
       {saveError && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{saveError}</p>{sessionExpired && <Link href="/login?next=%2Fdashboard" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold underline">Log in in a new tab</Link>}</div>}
-      <form onSubmit={event => {
+      <form onInputCapture={() => { hasInteracted.current = true; }} onClickCapture={() => { hasInteracted.current = true; }} onSubmit={event => {
         if (step < totalSteps) { event.preventDefault(); void handleNext(); return; }
         void handleSubmit(onSubmit)(event);
       }} className="flex-1 flex flex-col">

@@ -97,6 +97,33 @@ export const ContactDetailsSchema = z.object({
 });
 export type ContactDetails = z.output<typeof ContactDetailsSchema>;
 
+// In-progress answers need not satisfy the final questionnaire requirements.
+export const QuestionnaireDraftSchema = ApplicationFields.partial().extend({
+  firstName: z.string().optional(), lastName: z.string().optional(),
+  email: z.string().optional(), phone: z.string().optional(),
+});
+
+/** Discard answers belonging to options the customer no longer selected. */
+export function normalizeApplicationAnswers<T extends object>(input: T): T {
+  const data: Record<string, unknown> = Object.fromEntries(Object.entries(input));
+  const clear = (keys: string[]) => { for (const key of keys) delete data[key]; };
+  if (data.goal === 'BUY') {
+    clear(['refinanceGoal', 'cashOutPurpose', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'currentLenderOther', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
+  } else if (data.goal === 'REFINANCE') {
+    clear(['buySituation', 'propertyStatus', 'propertyPostcode', 'propertySuburb', 'propertyState', 'propertyLocationSelection', 'purchasePrice', 'deposit']);
+  }
+  if (data.refinanceGoal !== 'CASH_OUT') clear(['cashOutPurpose']);
+  if (data.currentLender !== 'Other') clear(['currentLenderOther']);
+  if (data.isFixedRate !== true) clear(['fixedRateExpiry']);
+  if (data.hasExistingLoans !== true) clear(['existingLoanLender', 'existingLoanLenderOther', 'existingLoanInterestRate', 'existingLoanBalance']);
+  if (data.existingLoanLender !== 'Other') clear(['existingLoanLenderOther']);
+  if (data.hasCreditCard !== true) clear(['creditCardLimit']);
+  if (data.relationshipStatus !== 'MARRIED' && data.relationshipStatus !== 'DE_FACTO') clear(['partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary']);
+  if (data.repaymentStructure !== 'INTEREST_ONLY') clear(['interestOnlyYears']);
+  if (data.ratePreference !== 'FIXED') clear(['fixedYears']);
+  return data as T;
+}
+
 type LoanDetails = z.output<typeof ApplicationFields>;
 function validateLoanDetails(data: LoanDetails, context: z.RefinementCtx) {
   if (!data.propertyUse) context.addIssue({ code: 'custom', path: ['propertyUse'], message: 'Choose how the property will be used' });

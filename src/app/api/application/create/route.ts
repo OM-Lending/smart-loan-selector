@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/server/lib/prisma';
 import { getAuthenticatedProfile } from '@/server/lib/auth';
 import { randomUUID } from 'node:crypto';
-import { ContactDetailsSchema, LoanApplicationSchema, type ContactDetails } from '@/lib/validations/application';
+import { Prisma } from '@prisma/client';
+import { ContactDetailsSchema, LoanApplicationSchema, normalizeApplicationAnswers, type ContactDetails } from '@/lib/validations/application';
 import { ApplicationProfileError, resolveApplicationProfile } from '@/server/lib/application-profile';
 import { validateAddressSelection } from '@/server/services/address.service';
 import { checkPropertyLocationSelection } from '@/server/lib/property-location-selection';
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
 
     // Parse and validate incoming payload
     const body = await request.json();
-    const validationResult = LoanApplicationSchema.safeParse(body);
+    const validationResult = LoanApplicationSchema.safeParse(body && typeof body === 'object' && !Array.isArray(body) ? normalizeApplicationAnswers(body) : body);
 
     if (!validationResult.success) {
       return NextResponse.json(
@@ -175,8 +176,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      return NextResponse.json({
+        error: 'Your application could not be saved due to a server configuration issue. Please try again after the server has been updated. Your questionnaire answers have been retained.',
+        diagnostic: { code: 'APPLICATION_DATABASE_CLIENT_VALIDATION_FAILED', stage: 'database_client', requestId },
+      }, { status: 500 });
+    }
+
     return NextResponse.json(
-      { error: 'Could not save your application. Please retry; your questionnaire details are still available in this browser.', diagnostic: { code: 'APPLICATION_SAVE_FAILED', stage: 'database_transaction', requestId } },
+      { error: 'Could not save your application. Please retry; your questionnaire details are still available in this browser.', diagnostic: { code: 'APPLICATION_SAVE_FAILED', stage: 'database_transaction', requestId, ...(error instanceof Prisma.PrismaClientKnownRequestError ? { databaseCode: error.code } : {}) } },
       { status: 500 }
     );
   }
