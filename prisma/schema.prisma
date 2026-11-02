@@ -488,6 +488,10 @@ model Application {
   partnerGrossSalary         Decimal?           @map("partner_gross_salary") @db.Decimal(12, 2)
   dependents                 Int                @default(0)
   hasExistingLoans           Boolean?           @map("has_existing_loans")
+  existingLoanLender         String?            @map("existing_loan_lender") @db.VarChar(120)
+  existingLoanInterestRate   Decimal?           @map("existing_loan_interest_rate") @db.Decimal(5, 2)
+  existingLoanBalance        Decimal?           @map("existing_loan_balance") @db.Decimal(14, 2)
+  // Retained for historical applications; new forms collect loan details instead.
   existingMonthlyRepayment   Decimal?           @map("existing_monthly_repayment") @db.Decimal(12, 2)
   hasCreditCard              Boolean?           @map("has_credit_card")
   creditCardLimit            Decimal?           @map("credit_card_limit") @db.Decimal(12, 2)

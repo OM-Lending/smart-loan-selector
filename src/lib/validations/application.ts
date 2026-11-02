@@ -25,6 +25,16 @@ const optionalChoice = <T extends readonly [string, ...string[]]>(values: T) => 
   z.enum(values).optional(),
 );
 
+const optionalLoanDecimal = (label: string, integerDigits: number, maximum: number) => z.preprocess(value => {
+  if (value === '' || value === null || value === undefined) return undefined;
+  if (typeof value !== 'string' && typeof value !== 'number') return NaN;
+  const pattern = new RegExp(`^(?:0|[1-9]\\d{0,${integerDigits - 1}})(?:\\.\\d{1,2})?$`);
+  return pattern.test(String(value)) ? Number(value) : NaN;
+}, z.number({ error: `Enter a valid ${label} with up to two decimal places` })
+  .min(0.01, `${label} must be greater than zero`)
+  .max(maximum, `${label} must not exceed ${maximum.toLocaleString('en-AU')}`)
+  .optional());
+
 const ApplicationFields = z.object({
   goal: z.enum(['BUY', 'REFINANCE'], { error: 'Loan goal is required' }),
   buySituation: optionalChoice(['EXPLORING', 'WITHIN_3_TO_6_MONTHS', 'MADE_OFFER', 'EXCHANGED'] as const),
@@ -69,7 +79,11 @@ const ApplicationFields = z.object({
   dependents: z.coerce.number().int().min(0).safe().default(0),
   
   hasExistingLoans: z.boolean().nullable().optional(),
-  existingMonthlyRepayment: emptyToUndefinedNumber,
+  existingLoanLender: z.preprocess(value => value === '' || value === null ? undefined : value,
+    z.enum(QUESTIONNAIRE.lenders, { error: 'Select your home loan lender from the list' }).optional()),
+  existingLoanLenderOther: z.string().trim().max(120, 'Lender name must be 120 characters or fewer').optional(),
+  existingLoanInterestRate: optionalLoanDecimal('interest rate', 2, 99.99),
+  existingLoanBalance: optionalLoanDecimal('loan balance', 12, 999_999_999_999.99),
   hasCreditCard: z.boolean().nullable().optional(),
   creditCardLimit: emptyToUndefinedNumber,
   
@@ -107,7 +121,14 @@ function validateLoanDetails(data: LoanDetails, context: z.RefinementCtx) {
       context.addIssue({ code: 'custom', path: ['currentLoanBalance'], message: 'Loan balance cannot exceed the property value' });
     }
   }
-  if (data.hasExistingLoans && !data.existingMonthlyRepayment) context.addIssue({ code: 'custom', path: ['existingMonthlyRepayment'], message: 'Enter your total monthly repayment greater than zero' });
+  if (data.hasExistingLoans) {
+    if (!data.existingLoanLender) context.addIssue({ code: 'custom', path: ['existingLoanLender'], message: 'Select your home loan lender' });
+    if (data.existingLoanLender === 'Other' && (!data.existingLoanLenderOther || data.existingLoanLenderOther.length < 2)) {
+      context.addIssue({ code: 'custom', path: ['existingLoanLenderOther'], message: 'Enter your lender name (at least 2 characters)' });
+    }
+    if (data.existingLoanInterestRate === undefined) context.addIssue({ code: 'custom', path: ['existingLoanInterestRate'], message: 'Enter your current interest rate' });
+    if (data.existingLoanBalance === undefined) context.addIssue({ code: 'custom', path: ['existingLoanBalance'], message: 'Enter your outstanding loan balance' });
+  }
   if (data.hasCreditCard && !data.creditCardLimit) context.addIssue({ code: 'custom', path: ['creditCardLimit'], message: 'Enter your total credit card limit greater than zero' });
   if (data.repaymentStructure === 'INTEREST_ONLY' && !data.interestOnlyYears) {
     context.addIssue({ code: 'custom', path: ['interestOnlyYears'], message: 'Choose the interest-only period' });

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CurrencyInput } from '@/components/ui/currency-input';
+import { PercentageInput } from '@/components/ui/percentage-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddressInput } from '@/components/form/AddressInput';
 import { PropertyLocationInput } from '@/components/form/PropertyLocationInput';
@@ -108,15 +109,6 @@ export function LoanWizard({ account }: { account: Account | null }) {
     router.push(`?q=${queryName}`, { scroll: false });
   };
 
-  const handleRateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (!e.target.value) return;
-    let val = parseFloat(e.target.value);
-    if (isNaN(val)) return;
-    if (val < 0.01) val = 0.01;
-    if (val > 99.99) val = 99.99;
-    setValue('currentInterestRate', Number(val.toFixed(2)), { shouldValidate: true });
-  };
-
   const handleDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/\D/g, ''); // only keep digits
     
@@ -154,7 +146,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
     } else if (step === 3) {
       isStepValid = await trigger(['repaymentStructure', 'interestOnlyYears', 'ratePreference', 'fixedYears']);
     } else if (step === 4) {
-      isStepValid = await trigger(['employmentStatus', 'employmentStartDate', 'grossAnnualSalary', 'relationshipStatus', 'partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'dependents', 'hasExistingLoans', 'existingMonthlyRepayment', 'hasCreditCard', 'creditCardLimit']);
+      isStepValid = await trigger(['employmentStatus', 'employmentStartDate', 'grossAnnualSalary', 'relationshipStatus', 'partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'dependents', 'hasExistingLoans', 'existingLoanLender', 'existingLoanLenderOther', 'existingLoanInterestRate', 'existingLoanBalance', 'hasCreditCard', 'creditCardLimit']);
     }
 
     if (isStepValid) {
@@ -465,11 +457,9 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                  <Label className="text-base font-bold mb-2 block">Current interest rate</Label>
-                  <div className="relative">
-                    <Input type="number" className="pr-8" placeholder="0.00" {...register('currentInterestRate')} onBlur={handleRateBlur} />
-                    <span className="absolute right-3 top-2.5 text-slate-500">%</span>
-                  </div>
+                  <Label htmlFor="current-interest-rate" className="text-base font-bold mb-2 block">Current interest rate</Label>
+                  <Controller name="currentInterestRate" control={control} render={({ field }) => <PercentageInput id="current-interest-rate" name={field.name} ref={field.ref} onBlur={field.onBlur} placeholder="0.00" aria-invalid={Boolean(errors.currentInterestRate)} aria-describedby={errors.currentInterestRate ? 'current-interest-rate-error' : undefined} value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                  {errors.currentInterestRate && <p id="current-interest-rate-error" className="mt-1 text-sm text-red-500">{errors.currentInterestRate.message}</p>}
                 </div>
                 <div>
                   <Label className="text-base font-bold mb-2 block">Repayment Type</Label>
@@ -639,24 +629,57 @@ export function LoanWizard({ account }: { account: Account | null }) {
                </div>
 
                <div>
-                 <Label className="text-base font-bold mb-3 block">Do you have any existing home loan, car loan, or personal loan?</Label>
+                 <Label className="text-base font-bold mb-3 block">Do you have an existing home loan?</Label>
                  <div className="grid grid-cols-2 gap-3 mb-4">
                    {QUESTIONNAIRE.booleanOptions.map((opt) => (
                      <button type="button" key={opt.label} onClick={() => {
                        setValue('hasExistingLoans', opt.value, { shouldValidate: true });
-                       if (!opt.value) setValue('existingMonthlyRepayment', undefined);
+                       if (!opt.value) {
+                         setValue('existingLoanLender', undefined, { shouldValidate: true });
+                         setValue('existingLoanLenderOther', '', { shouldValidate: true });
+                         setValue('existingLoanInterestRate', undefined, { shouldValidate: true });
+                         setValue('existingLoanBalance', undefined, { shouldValidate: true });
+                       }
                      }} className={`p-3 rounded-xl border font-medium transition-all ${formValues.hasExistingLoans === opt.value ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{opt.label}</button>
                    ))}
                  </div>
                  
                  {formValues.hasExistingLoans === true && (
-                   <div className="animate-in fade-in max-w-sm">
-                     <Label className="text-sm font-semibold mb-2 block text-slate-600">Total monthly repayment</Label>
-                     <div className="relative">
-                       <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                       <Controller name="existingMonthlyRepayment" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Total monthly repayment" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                   <div className="animate-in fade-in space-y-4 rounded-xl border bg-slate-50 p-4 sm:p-5">
+                     <div>
+                       <Label className="mb-2 block text-sm font-semibold text-slate-600">Home loan lender</Label>
+                       <Controller name="existingLoanLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={value => {
+                         field.onChange(value);
+                         if (value !== 'Other') setValue('existingLoanLenderOther', '', { shouldDirty: true, shouldValidate: true });
+                       }}>
+                         <SelectTrigger ref={field.ref} onBlur={field.onBlur} aria-label="Home loan lender" aria-required="true" aria-invalid={Boolean(errors.existingLoanLender)}><SelectValue placeholder="Select your home loan lender" /></SelectTrigger>
+                         <SelectContent>{QUESTIONNAIRE.lenders.map(lender => <SelectItem key={lender} value={lender}>{lender}</SelectItem>)}</SelectContent>
+                       </Select>} />
+                       <p className="mt-2 text-xs text-slate-500">Select Other if your lender is not listed.</p>
+                       {errors.existingLoanLender && <p className="mt-1 text-sm text-red-500">{errors.existingLoanLender.message}</p>}
                      </div>
-                  {errors.existingMonthlyRepayment && <p className="mt-1 text-sm text-red-500">{errors.existingMonthlyRepayment.message}</p>}
+                     {formValues.existingLoanLender === 'Other' && (
+                       <div>
+                         <Label htmlFor="existing-loan-lender-other" className="mb-2 block text-sm font-semibold text-slate-600">Lender name</Label>
+                         <Input id="existing-loan-lender-other" placeholder="Enter your lender name" maxLength={120} aria-required="true" aria-invalid={Boolean(errors.existingLoanLenderOther)} aria-describedby={errors.existingLoanLenderOther ? 'existing-loan-lender-other-error' : undefined} {...register('existingLoanLenderOther')} />
+                         {errors.existingLoanLenderOther && <p id="existing-loan-lender-other-error" className="mt-1 text-sm text-red-500">{errors.existingLoanLenderOther.message}</p>}
+                       </div>
+                     )}
+                     <div className="grid gap-4 sm:grid-cols-2">
+                       <div>
+                         <Label htmlFor="existing-loan-interest-rate" className="mb-2 block text-sm font-semibold text-slate-600">Current interest rate (% p.a.)</Label>
+                         <Controller name="existingLoanInterestRate" control={control} render={({ field }) => <PercentageInput id="existing-loan-interest-rate" name={field.name} ref={field.ref} onBlur={field.onBlur} placeholder="0.00" aria-required="true" aria-invalid={Boolean(errors.existingLoanInterestRate)} aria-describedby={errors.existingLoanInterestRate ? 'existing-loan-interest-rate-error' : undefined} value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                         {errors.existingLoanInterestRate && <p id="existing-loan-interest-rate-error" className="mt-1 text-sm text-red-500">{errors.existingLoanInterestRate.message}</p>}
+                       </div>
+                       <div>
+                         <Label htmlFor="existing-loan-balance" className="mb-2 block text-sm font-semibold text-slate-600">Outstanding loan balance (AUD)</Label>
+                         <div className="relative">
+                           <span aria-hidden="true" className="absolute left-3 top-2.5 text-slate-500">$</span>
+                           <Controller name="existingLoanBalance" control={control} render={({ field }) => <CurrencyInput id="existing-loan-balance" name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-required="true" aria-invalid={Boolean(errors.existingLoanBalance)} aria-describedby={errors.existingLoanBalance ? 'existing-loan-balance-error' : undefined} value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                         </div>
+                         {errors.existingLoanBalance && <p id="existing-loan-balance-error" className="mt-1 text-sm text-red-500">{errors.existingLoanBalance.message}</p>}
+                       </div>
+                     </div>
                    </div>
                  )}
                </div>

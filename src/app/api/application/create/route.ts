@@ -121,7 +121,11 @@ export async function POST(request: Request) {
           partnerGrossSalary: applicationData.partnerGrossSalary,
           dependents: applicationData.dependents,
           hasExistingLoans: applicationData.hasExistingLoans,
-          existingMonthlyRepayment: applicationData.existingMonthlyRepayment,
+          existingLoanLender: applicationData.hasExistingLoans
+            ? applicationData.existingLoanLender === 'Other' ? applicationData.existingLoanLenderOther : applicationData.existingLoanLender
+            : undefined,
+          existingLoanInterestRate: applicationData.hasExistingLoans ? applicationData.existingLoanInterestRate : undefined,
+          existingLoanBalance: applicationData.hasExistingLoans ? applicationData.existingLoanBalance : undefined,
           hasCreditCard: applicationData.hasCreditCard,
           creditCardLimit: applicationData.creditCardLimit,
           currentStage: 'LEAD_CAPTURED',
