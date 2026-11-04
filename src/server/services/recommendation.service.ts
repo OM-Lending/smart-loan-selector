@@ -4,12 +4,13 @@ import { Decimal } from 'decimal.js';
 import { RatePreference, RepaymentStructure, Prisma, QuoteEligibilityStatus } from '@prisma/client';
 import { assessPromotions, projectNetCost } from '@/server/services/promotions/promotion-evaluator';
 import { isExcludedCdrLender } from '@/server/services/cdr/cdr-lender-policy';
+import { normalizeRelationshipStatus } from '@/lib/relationship-status';
 
 export class NotFoundError extends Error {}
 export class ValidationError extends Error {}
 
 const RULES_VERSION = 'mortgage-v2.0.0';
-const ENGINE_VERSION = 'recommendation-engine-v11';
+const ENGINE_VERSION = 'recommendation-engine-v12';
 const COMPARISON_HORIZON_MONTHS = 60;
 const D = (value: unknown) => new Decimal(value === null || value === undefined ? 0 : String(value));
 // Older database rows were persisted directly from CDR RateString (ratio
@@ -35,9 +36,14 @@ function assess(candidate: Candidate, app: { relationshipStatus: string; depende
   const warnings: string[] = [];
   const productRules = candidate.product.constraints ?? [];
   const recommendationRules = jsonObject(candidate.product.recommendationEligibilityRules);
-  if (recommendationRules.applicantType === 'SINGLE_PARENT_ONLY'
-    && !(['NEVER_MARRIED', 'DIVORCED', 'WIDOWED', 'SINGLE'].includes(app.relationshipStatus) && app.dependents > 0)) {
-    reasons.push('SINGLE_PARENT_ONLY_PRODUCT');
+  if (recommendationRules.applicantType === 'SINGLE_PARENT_ONLY') {
+    if (normalizeRelationshipStatus(app.relationshipStatus) !== 'SINGLE' || app.dependents <= 0) {
+      reasons.push('SINGLE_PARENT_ONLY_PRODUCT');
+    } else {
+      // Financial dependents can include adults; the current questionnaire
+      // supports a preliminary match, but cannot prove single-parent eligibility.
+      warnings.push('SINGLE_PARENT_ELIGIBILITY_REQUIRES_CONFIRMATION');
+    }
   }
   if (candidate.minAmount && loanAmount.lt(candidate.minAmount)) reasons.push('BELOW_RATE_MINIMUM_AMOUNT');
   if (candidate.maxAmount && loanAmount.gt(candidate.maxAmount)) reasons.push('ABOVE_RATE_MAXIMUM_AMOUNT');
@@ -187,6 +193,7 @@ export async function generateRecommendations({ applicationId, userId }: { appli
     property: { value: propertyValue.toFixed(2), postcode: app.propertyPostcode, suburb: app.propertySuburb, state: app.propertyState, type: app.propertyType, use: targetPurpose },
     loan: { amount: loanAmount.toFixed(2), lvr: lvr.toFixed(2), repayment: targetRepayment, requestedInterestOnlyYears: requestedIOYears, requestedFixedYears },
     preferences: { rateType: targetRateType },
+    applicant: { relationshipStatus: normalizeRelationshipStatus(app.relationshipStatus) ?? app.relationshipStatus, financialDependents: app.dependents },
     promotionAnswers: jsonObject(app.promotionAnswers),
   };
 

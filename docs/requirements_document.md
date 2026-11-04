@@ -6,7 +6,7 @@ ADD:me bank
 REMOVE: citi australia
 
 
-1. 增加 me bank, 去掉 citi australia, 检查一下resimac 这个银行有咩有, 没有的话就不加了
+✅1. 增加 me bank, 去掉 citi australia, 检查一下resimac 这个银行有咩有, 没有的话就不加了
 
    Mebank json FROM https://api.cdr.gov.au/cdr-register/v1/banking/data-holders/brands/summary
 
@@ -27,20 +27,21 @@ REMOVE: citi australia
 
 2. 增加 self employ 这个选项, SE 的话填写 ABN, established date, businese profit,不填写雇员相关信息
 
-3. header 中的talk to a broker button 点击之后出现一个覆盖悬浮窗MODAL 不要做点点蒙层关闭) 浮窗中让用户留下他的联系方式以及一个 Message 的输入框,
+✅3. header 中的talk to a broker button 点击之后出现一个覆盖悬浮窗MODAL 不要做点点蒙层关闭) 浮窗中让用户留下他的联系方式以及一个 Message 的输入框,
    这个信息会保存并且写入数据库并且给到 admin 端口去查看(后续还会接入 email 通知admin, 将消息内容和联系方式发送给 admin 邮箱)
 
-4. cash out from existing property, Lender 选 other 之后留一个输入框,让用户输入他的 lender
+✅4. cash out from existing property, Lender 选 other 之后留一个输入框,让用户输入他的 lender
 
-5. existing home loan 加上 lender,银行利率和 loan balance, interst rate, 去掉 monthly repartment.
+✅5. existing home loan 加上 lender,银行利率和 loan balance, interst rate, 去掉 monthly repartment.
 
-6. 增加email 通知功能, 当有新的 application, 完成所有材料递交, 以及通过 talk to a broker 留言的情况,, 给 admin email 发送邮件通知并且email 展示相关信息
+✅6. 增加email 通知功能, 当有新的 application, 完成所有材料递交, 以及通过 talk to a broker 留言的情况,, 给 admin email 发送邮件通知并且email 展示相关信息
 
-7. 在完成了推荐之后增加一个我们的 Specialist will review and contact you 这个提示, 提示的类型需要确认下, alter 还是什么之后的
+✅7. 在完成了推荐之后增加一个我们的 Specialist will review and contact you 这个提示, 提示的类型需要确认下, alter 还是什么之后的
 
-8. 婚姻状态只留下 3 个即可, 同步可能还要调整 single parrent 这个产品的筛选条件.
+✅8. 婚姻状态只留下 3 个即可, 同步可能还要调整 single parrent 这个产品的筛选条件.
+9. 增加一下 privacy term consent
 
-9. 调整 continue 之后收集信息的表格
+10. 调整 continue 之后收集信息的表格
 
 如下:
 

@@ -8,12 +8,14 @@ import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Home, RefreshCw, Minus, Plus } from 'lucide-react';
 
-import { ApplicationSchema, LoanApplicationSchema, SignedInApplicationFormSchema, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
+import { ApplicationSchema, LoanApplicationSchema, SignedInApplicationFormSchema, normalizeApplicationAnswers, type ApplicationFormInput, type ApplicationPayload } from '@/lib/validations/application';
+import { clearQuestionnaireDraft, readQuestionnaireDraft, writeQuestionnaireDraft } from '@/lib/questionnaire-draft';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CurrencyInput } from '@/components/ui/currency-input';
+import { PercentageInput } from '@/components/ui/percentage-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddressInput } from '@/components/form/AddressInput';
 import { PropertyLocationInput } from '@/components/form/PropertyLocationInput';
@@ -35,6 +37,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
   const [sessionExpired, setSessionExpired] = useState(false);
   const saveInFlight = useRef(false);
   const restoredOwner = useRef('');
+  const hasInteracted = useRef(false);
   const refreshedSession = useRef('');
   const reuseProfile = Boolean(account?.hasProfile && !needsContactDetails);
   const totalSteps = reuseProfile ? 4 : 5;
@@ -45,12 +48,14 @@ export function LoanWizard({ account }: { account: Account | null }) {
     register,
     control,
     reset,
+    getValues,
+    subscribe,
     handleSubmit,
     setValue,
     trigger,
-    formState: { errors, isSubmitting }
+    formState: { errors, isSubmitting, isDirty }
   } = useForm<ApplicationFormInput, unknown, ApplicationPayload>({
-    resolver: zodResolver(reuseProfile ? SignedInApplicationFormSchema : ApplicationSchema),
+    resolver: (values, context, options) => zodResolver(reuseProfile ? SignedInApplicationFormSchema : ApplicationSchema)(normalizeApplicationAnswers(values), context, options),
     mode: 'onChange',
     defaultValues: {
       goal: undefined,
@@ -81,15 +86,29 @@ export function LoanWizard({ account }: { account: Account | null }) {
   }, [account, isLoaded, router, user]);
 
   useEffect(() => {
-    if (!reuseProfile || !isLoaded || !user || user.id !== account?.clerkUserId || restoredOwner.current === user.id) return;
-    restoredOwner.current = user.id;
+    if (!isLoaded || accountChanged) return;
+    const owner = user?.id ?? null;
+    const ownerKey = owner ?? 'anonymous';
+    if (restoredOwner.current === ownerKey) return;
+    restoredOwner.current = ownerKey;
     try {
-      if (sessionStorage.getItem('pending_quote_owner') !== user.id) return;
-      const raw = sessionStorage.getItem('pending_loan_data');
-      const parsed = LoanApplicationSchema.safeParse(raw ? JSON.parse(raw) : null);
-      if (parsed.success) reset({ ...parsed.data, firstName: '', lastName: '', email: user.primaryEmailAddress?.emailAddress ?? '', phone: '' });
+      const draft = readQuestionnaireDraft(owner, user?.primaryEmailAddress?.verification.status === 'verified' ? user.primaryEmailAddress.emailAddress : undefined);
+      // A late Clerk response must never overwrite answers already being typed.
+      if (draft && !isDirty && !hasInteracted.current) reset({ firstName: '', lastName: '', email: '', phone: '', ...draft, ...(user ? { email: user.primaryEmailAddress?.emailAddress ?? '' } : {}) });
+      writeQuestionnaireDraft(owner, normalizeApplicationAnswers(getValues()));
     } catch { /* An unreadable draft must not prevent a new quote. */ }
-  }, [account?.clerkUserId, isLoaded, reset, reuseProfile, user]);
+  }, [accountChanged, getValues, isDirty, isLoaded, reset, user]);
+
+  useEffect(() => {
+    if (!isLoaded || accountChanged) return;
+    return subscribe({
+      formState: { values: true },
+      callback: ({ values }) => {
+        try { writeQuestionnaireDraft(user?.id ?? null, normalizeApplicationAnswers(values)); }
+        catch { /* Storage restrictions must not interrupt typing. */ }
+      },
+    });
+  }, [accountChanged, isLoaded, user?.id, subscribe]);
 
   useEffect(() => {
     if (reuseProfile && currentQuery === 'contact-details') router.replace('?q=personal-profile', { scroll: false });
@@ -106,15 +125,6 @@ export function LoanWizard({ account }: { account: Account | null }) {
     const queryName = STEP_URLS[newStep - 1];
     setStep(newStep);
     router.push(`?q=${queryName}`, { scroll: false });
-  };
-
-  const handleRateBlur = (e: React.FocusEvent<HTMLInputElement>) => {
-    if (!e.target.value) return;
-    let val = parseFloat(e.target.value);
-    if (isNaN(val)) return;
-    if (val < 0.01) val = 0.01;
-    if (val > 99.99) val = 99.99;
-    setValue('currentInterestRate', Number(val.toFixed(2)), { shouldValidate: true });
   };
 
   const handleDateInput = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -149,12 +159,12 @@ export function LoanWizard({ account }: { account: Account | null }) {
       if (formValues.goal === 'BUY') {
         isStepValid = await trigger(['buySituation', 'isFirstHomeBuyer', 'propertyUse', 'propertyStatus', 'propertyType', 'propertyPostcode', 'propertySuburb', 'propertyState', 'propertyLocationSelection', 'purchasePrice', 'deposit']);
       } else {
-        isStepValid = await trigger(['refinanceGoal', 'cashOutPurpose', 'propertyUse', 'propertyType', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
+        isStepValid = await trigger(['refinanceGoal', 'cashOutPurpose', 'propertyUse', 'propertyType', 'propertyAddress', 'propertyAddressSelection', 'currentLender', 'currentLenderOther', 'propertyValue', 'currentLoanBalance', 'currentInterestRate', 'currentRepaymentType', 'isFixedRate', 'fixedRateExpiry']);
       }
     } else if (step === 3) {
       isStepValid = await trigger(['repaymentStructure', 'interestOnlyYears', 'ratePreference', 'fixedYears']);
     } else if (step === 4) {
-      isStepValid = await trigger(['employmentStatus', 'employmentStartDate', 'grossAnnualSalary', 'relationshipStatus', 'partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'dependents', 'hasExistingLoans', 'existingMonthlyRepayment', 'hasCreditCard', 'creditCardLimit']);
+      isStepValid = await trigger(['employmentStatus', 'employmentStartDate', 'grossAnnualSalary', 'relationshipStatus', 'partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'dependents', 'hasExistingLoans', 'existingLoanLender', 'existingLoanLenderOther', 'existingLoanInterestRate', 'existingLoanBalance', 'hasCreditCard', 'creditCardLimit']);
     }
 
     if (isStepValid) {
@@ -171,6 +181,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
       if (account) { setSessionExpired(true); setSaveError('Your session has expired. Log in again, then retry. Your answers remain on this page.'); return; }
       try {
         sessionStorage.removeItem('pending_quote_owner');
+        // Replace the whole snapshot; never merge a previous application's answers.
         sessionStorage.setItem('pending_loan_data', JSON.stringify(data));
         router.push('/sign-up');
       } catch { setSaveError('Browser storage is unavailable. Enable it before continuing to email verification. Your answers remain on this page.'); }
@@ -206,6 +217,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
         sessionStorage.setItem('recommendation_status', result.recommendationStatus || 'PENDING');
         sessionStorage.removeItem('pending_loan_data');
         sessionStorage.removeItem('pending_quote_owner');
+        clearQuestionnaireDraft();
       } catch { /* The application is saved; navigate using the returned ID. */ }
       router.replace(`/applications/${result.applicationId}/recommendations`);
       router.refresh();
@@ -243,7 +255,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
       {accountChanged && <p role="alert" className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">Your signed-in account changed. <a href="/get-started" className="font-semibold underline">Start a new quote for this account</a>.</p>}
       {saveError && <div role="alert" className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{saveError}</p>{sessionExpired && <Link href="/login?next=%2Fdashboard" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold underline">Log in in a new tab</Link>}</div>}
-      <form onSubmit={event => {
+      <form onInputCapture={() => { hasInteracted.current = true; }} onClickCapture={() => { hasInteracted.current = true; }} onSubmit={event => {
         if (step < totalSteps) { event.preventDefault(); void handleNext(); return; }
         void handleSubmit(onSubmit)(event);
       }} className="flex-1 flex flex-col">
@@ -426,12 +438,22 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
               <div>
                 <Label className="text-base font-bold mb-2 block">Who is your current lender?</Label>
-                <Controller name="currentLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={field.onChange}>
+                <Controller name="currentLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={value => {
+                  field.onChange(value);
+                  if (value !== 'Other') setValue('currentLenderOther', '', { shouldDirty: true, shouldValidate: true });
+                }}>
                   <SelectTrigger ref={field.ref} onBlur={field.onBlur} aria-label="Current lender" aria-invalid={Boolean(errors.currentLender)}><SelectValue placeholder="Select your current lender" /></SelectTrigger>
                   <SelectContent>{QUESTIONNAIRE.lenders.map(lender => <SelectItem key={lender} value={lender}>{lender}</SelectItem>)}</SelectContent>
                 </Select>} />
                 <p className="mt-2 text-xs text-slate-500">Select Other if your lender is not listed.</p>
                 {errors.currentLender && <p className="mt-1 text-sm text-red-500">{errors.currentLender.message}</p>}
+                {formValues.currentLender === 'Other' && (
+                  <div className="mt-4">
+                    <Label htmlFor="current-lender-other" className="mb-2 block font-semibold">Lender name <span aria-hidden="true">*</span></Label>
+                    <Input id="current-lender-other" placeholder="Enter your lender name" maxLength={120} aria-required="true" aria-invalid={Boolean(errors.currentLenderOther)} aria-describedby={errors.currentLenderOther ? 'current-lender-other-error' : undefined} {...register('currentLenderOther')} />
+                    {errors.currentLenderOther && <p id="current-lender-other-error" className="mt-1 text-sm text-red-500">{errors.currentLenderOther.message}</p>}
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-4 border-t">
@@ -455,11 +477,9 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
-                  <Label className="text-base font-bold mb-2 block">Current interest rate</Label>
-                  <div className="relative">
-                    <Input type="number" className="pr-8" placeholder="0.00" {...register('currentInterestRate')} onBlur={handleRateBlur} />
-                    <span className="absolute right-3 top-2.5 text-slate-500">%</span>
-                  </div>
+                  <Label htmlFor="current-interest-rate" className="text-base font-bold mb-2 block">Current interest rate</Label>
+                  <Controller name="currentInterestRate" control={control} render={({ field }) => <PercentageInput id="current-interest-rate" name={field.name} ref={field.ref} onBlur={field.onBlur} placeholder="0.00" aria-invalid={Boolean(errors.currentInterestRate)} aria-describedby={errors.currentInterestRate ? 'current-interest-rate-error' : undefined} value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                  {errors.currentInterestRate && <p id="current-interest-rate-error" className="mt-1 text-sm text-red-500">{errors.currentInterestRate.message}</p>}
                 </div>
                 <div>
                   <Label className="text-base font-bold mb-2 block">Repayment Type</Label>
@@ -629,24 +649,57 @@ export function LoanWizard({ account }: { account: Account | null }) {
                </div>
 
                <div>
-                 <Label className="text-base font-bold mb-3 block">Do you have any existing home loan, car loan, or personal loan?</Label>
+                 <Label className="text-base font-bold mb-3 block">Do you have an existing home loan?</Label>
                  <div className="grid grid-cols-2 gap-3 mb-4">
                    {QUESTIONNAIRE.booleanOptions.map((opt) => (
                      <button type="button" key={opt.label} onClick={() => {
                        setValue('hasExistingLoans', opt.value, { shouldValidate: true });
-                       if (!opt.value) setValue('existingMonthlyRepayment', undefined);
+                       if (!opt.value) {
+                         setValue('existingLoanLender', undefined, { shouldValidate: true });
+                         setValue('existingLoanLenderOther', '', { shouldValidate: true });
+                         setValue('existingLoanInterestRate', undefined, { shouldValidate: true });
+                         setValue('existingLoanBalance', undefined, { shouldValidate: true });
+                       }
                      }} className={`p-3 rounded-xl border font-medium transition-all ${formValues.hasExistingLoans === opt.value ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{opt.label}</button>
                    ))}
                  </div>
                  
                  {formValues.hasExistingLoans === true && (
-                   <div className="animate-in fade-in max-w-sm">
-                     <Label className="text-sm font-semibold mb-2 block text-slate-600">Total monthly repayment</Label>
-                     <div className="relative">
-                       <span className="absolute left-3 top-2.5 text-slate-500">$</span>
-                       <Controller name="existingMonthlyRepayment" control={control} render={({ field }) => <CurrencyInput name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-label="Total monthly repayment" value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                   <div className="animate-in fade-in space-y-4 rounded-xl border bg-slate-50 p-4 sm:p-5">
+                     <div>
+                       <Label className="mb-2 block text-sm font-semibold text-slate-600">Home loan lender</Label>
+                       <Controller name="existingLoanLender" control={control} render={({ field }) => <Select value={typeof field.value === 'string' ? field.value : ''} onValueChange={value => {
+                         field.onChange(value);
+                         if (value !== 'Other') setValue('existingLoanLenderOther', '', { shouldDirty: true, shouldValidate: true });
+                       }}>
+                         <SelectTrigger ref={field.ref} onBlur={field.onBlur} aria-label="Home loan lender" aria-required="true" aria-invalid={Boolean(errors.existingLoanLender)}><SelectValue placeholder="Select your home loan lender" /></SelectTrigger>
+                         <SelectContent>{QUESTIONNAIRE.lenders.map(lender => <SelectItem key={lender} value={lender}>{lender}</SelectItem>)}</SelectContent>
+                       </Select>} />
+                       <p className="mt-2 text-xs text-slate-500">Select Other if your lender is not listed.</p>
+                       {errors.existingLoanLender && <p className="mt-1 text-sm text-red-500">{errors.existingLoanLender.message}</p>}
                      </div>
-                  {errors.existingMonthlyRepayment && <p className="mt-1 text-sm text-red-500">{errors.existingMonthlyRepayment.message}</p>}
+                     {formValues.existingLoanLender === 'Other' && (
+                       <div>
+                         <Label htmlFor="existing-loan-lender-other" className="mb-2 block text-sm font-semibold text-slate-600">Lender name</Label>
+                         <Input id="existing-loan-lender-other" placeholder="Enter your lender name" maxLength={120} aria-required="true" aria-invalid={Boolean(errors.existingLoanLenderOther)} aria-describedby={errors.existingLoanLenderOther ? 'existing-loan-lender-other-error' : undefined} {...register('existingLoanLenderOther')} />
+                         {errors.existingLoanLenderOther && <p id="existing-loan-lender-other-error" className="mt-1 text-sm text-red-500">{errors.existingLoanLenderOther.message}</p>}
+                       </div>
+                     )}
+                     <div className="grid gap-4 sm:grid-cols-2">
+                       <div>
+                         <Label htmlFor="existing-loan-interest-rate" className="mb-2 block text-sm font-semibold text-slate-600">Current interest rate (% p.a.)</Label>
+                         <Controller name="existingLoanInterestRate" control={control} render={({ field }) => <PercentageInput id="existing-loan-interest-rate" name={field.name} ref={field.ref} onBlur={field.onBlur} placeholder="0.00" aria-required="true" aria-invalid={Boolean(errors.existingLoanInterestRate)} aria-describedby={errors.existingLoanInterestRate ? 'existing-loan-interest-rate-error' : undefined} value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                         {errors.existingLoanInterestRate && <p id="existing-loan-interest-rate-error" className="mt-1 text-sm text-red-500">{errors.existingLoanInterestRate.message}</p>}
+                       </div>
+                       <div>
+                         <Label htmlFor="existing-loan-balance" className="mb-2 block text-sm font-semibold text-slate-600">Outstanding loan balance (AUD)</Label>
+                         <div className="relative">
+                           <span aria-hidden="true" className="absolute left-3 top-2.5 text-slate-500">$</span>
+                           <Controller name="existingLoanBalance" control={control} render={({ field }) => <CurrencyInput id="existing-loan-balance" name={field.name} ref={field.ref} onBlur={field.onBlur} className="pl-7" placeholder="0" aria-required="true" aria-invalid={Boolean(errors.existingLoanBalance)} aria-describedby={errors.existingLoanBalance ? 'existing-loan-balance-error' : undefined} value={typeof field.value === 'string' || typeof field.value === 'number' ? field.value : ''} onValueChange={field.onChange} />} />
+                         </div>
+                         {errors.existingLoanBalance && <p id="existing-loan-balance-error" className="mt-1 text-sm text-red-500">{errors.existingLoanBalance.message}</p>}
+                       </div>
+                     </div>
                    </div>
                  )}
                </div>

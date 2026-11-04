@@ -1,8 +1,10 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
+import { enqueueAdminNotification, tryAdminNotifications } from '@/server/services/notifications/notification.service';
 import { prisma } from '@/server/lib/prisma';
 import { getAuthenticatedProfile } from '@/server/lib/auth';
 import { randomUUID } from 'node:crypto';
-import { ContactDetailsSchema, LoanApplicationSchema, type ContactDetails } from '@/lib/validations/application';
+import { Prisma } from '@prisma/client';
+import { ContactDetailsSchema, LoanApplicationSchema, normalizeApplicationAnswers, type ContactDetails } from '@/lib/validations/application';
 import { ApplicationProfileError, resolveApplicationProfile } from '@/server/lib/application-profile';
 import { validateAddressSelection } from '@/server/services/address.service';
 import { checkPropertyLocationSelection } from '@/server/lib/property-location-selection';
@@ -25,7 +27,7 @@ export async function POST(request: Request) {
 
     // Parse and validate incoming payload
     const body = await request.json();
-    const validationResult = LoanApplicationSchema.safeParse(body);
+    const validationResult = LoanApplicationSchema.safeParse(body && typeof body === 'object' && !Array.isArray(body) ? normalizeApplicationAnswers(body) : body);
 
     if (!validationResult.success) {
       return NextResponse.json(
@@ -76,7 +78,7 @@ export async function POST(request: Request) {
     const applicationData = validData;
 
     // Get the application ID
-    const { applicationId: createdApplicationId, userId: createdApplicationOwnerId } = await prisma.$transaction(async (tx) => {
+    const { applicationId: createdApplicationId, userId: createdApplicationOwnerId, notificationEventId } = await prisma.$transaction(async (tx) => {
       const profile = await resolveApplicationProfile(tx, identity, contact);
 
       // 2. Persist loan application data
@@ -97,7 +99,11 @@ export async function POST(request: Request) {
           refinanceGoal: applicationData.refinanceGoal,
           cashOutPurpose: applicationData.cashOutPurpose,
           propertyAddress: applicationData.propertyAddress,
-          currentLender: applicationData.currentLender,
+          // Store the actual lender name for broker review, rather than the
+          // form's "Other" sentinel. Custom names are validated by the schema.
+          currentLender: applicationData.goal === 'REFINANCE'
+            ? applicationData.currentLender === 'Other' ? applicationData.currentLenderOther : applicationData.currentLender
+            : undefined,
           propertyValue: applicationData.propertyValue,
           currentLoanBalance: applicationData.currentLoanBalance,
           currentInterestRate: applicationData.currentInterestRate,
@@ -117,15 +123,21 @@ export async function POST(request: Request) {
           partnerGrossSalary: applicationData.partnerGrossSalary,
           dependents: applicationData.dependents,
           hasExistingLoans: applicationData.hasExistingLoans,
-          existingMonthlyRepayment: applicationData.existingMonthlyRepayment,
+          existingLoanLender: applicationData.hasExistingLoans
+            ? applicationData.existingLoanLender === 'Other' ? applicationData.existingLoanLenderOther : applicationData.existingLoanLender
+            : undefined,
+          existingLoanInterestRate: applicationData.hasExistingLoans ? applicationData.existingLoanInterestRate : undefined,
+          existingLoanBalance: applicationData.hasExistingLoans ? applicationData.existingLoanBalance : undefined,
           hasCreditCard: applicationData.hasCreditCard,
           creditCardLimit: applicationData.creditCardLimit,
           currentStage: 'LEAD_CAPTURED',
         }
       });
       
-      return { applicationId: application.id, userId: profile.id };
-    });
+      const notification = await enqueueAdminNotification(tx, { key: `application.created:${application.id}`, type: 'APPLICATION_CREATED', applicationId: application.id });
+      return { applicationId: application.id, userId: profile.id, notificationEventId: notification.id };
+    }, { timeout: 15_000 });
+    after(() => tryAdminNotifications(notificationEventId));
 
     //Logging
     console.log(`[Create API] Application ${createdApplicationId} created. Triggering Engine...`);
@@ -167,8 +179,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    if (error instanceof Prisma.PrismaClientValidationError) {
+      return NextResponse.json({
+        error: 'Your application could not be saved due to a server configuration issue. Please try again after the server has been updated. Your questionnaire answers have been retained.',
+        diagnostic: { code: 'APPLICATION_DATABASE_CLIENT_VALIDATION_FAILED', stage: 'database_client', requestId },
+      }, { status: 500 });
+    }
+
     return NextResponse.json(
-      { error: 'Could not save your application. Please retry; your questionnaire details are still available in this browser.', diagnostic: { code: 'APPLICATION_SAVE_FAILED', stage: 'database_transaction', requestId } },
+      { error: 'Could not save your application. Please retry; your questionnaire details are still available in this browser.', diagnostic: { code: 'APPLICATION_SAVE_FAILED', stage: 'database_transaction', requestId, ...(error instanceof Prisma.PrismaClientKnownRequestError ? { databaseCode: error.code } : {}) } },
       { status: 500 }
     );
   }
