@@ -59,6 +59,9 @@ importers:
       react-hook-form:
         specifier: ^7.89.0
         version: 7.89.0(@types/react@19.3.0)(react@19.2.8)
+      server-only:
+        specifier: ^0.0.1
+        version: 0.0.1
       shadcn:
         specifier: ^4.21.0
         version: 4.21.0(supports-color@7.2.0)(typescript@5.9.3)
