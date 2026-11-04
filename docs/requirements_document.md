@@ -40,8 +40,9 @@ REMOVE: citi australia
 
 ✅8. 婚姻状态只留下 3 个即可, 同步可能还要调整 single parrent 这个产品的筛选条件.
 9. 增加一下 privacy term consent
+10. 上传文档过程中加一个 loading
 
-10. 调整 continue 之后收集信息的表格
+11. 调整 continue 之后收集信息的表格
 
 如下:
 
