@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
+import { enqueueAdminNotification, tryAdminNotifications } from '@/server/services/notifications/notification.service';
 import { prisma } from '@/server/lib/prisma';
 import { getAuthenticatedProfile } from '@/server/lib/auth';
 import { randomUUID } from 'node:crypto';
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
     const applicationData = validData;
 
     // Get the application ID
-    const { applicationId: createdApplicationId, userId: createdApplicationOwnerId } = await prisma.$transaction(async (tx) => {
+    const { applicationId: createdApplicationId, userId: createdApplicationOwnerId, notificationEventId } = await prisma.$transaction(async (tx) => {
       const profile = await resolveApplicationProfile(tx, identity, contact);
 
       // 2. Persist loan application data
@@ -133,8 +134,10 @@ export async function POST(request: Request) {
         }
       });
       
-      return { applicationId: application.id, userId: profile.id };
-    });
+      const notification = await enqueueAdminNotification(tx, { key: `application.created:${application.id}`, type: 'APPLICATION_CREATED', applicationId: application.id });
+      return { applicationId: application.id, userId: profile.id, notificationEventId: notification.id };
+    }, { timeout: 15_000 });
+    after(() => tryAdminNotifications(notificationEventId));
 
     //Logging
     console.log(`[Create API] Application ${createdApplicationId} created. Triggering Engine...`);

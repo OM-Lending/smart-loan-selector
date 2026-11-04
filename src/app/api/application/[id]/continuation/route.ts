@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
+import { enqueueAdminNotification, tryAdminNotifications } from '@/server/services/notifications/notification.service';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/server/lib/prisma';
@@ -180,7 +181,11 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     }
 
     const jsonDetails = details as Prisma.InputJsonValue;
-    const continuation = await prisma.$transaction(async tx => {
+    const { continuation, notificationEventId } = await prisma.$transaction(async tx => {
+      // Serialize concurrent final submissions so one submission creates one event.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`continuation:${id}`}))`;
+      const existing = await tx.applicationContinuation.findUnique({ where: { applicationId: id }, include: { selectedQuote: true } });
+      if (existing?.status === 'SUBMITTED' && existing.reviewStatus !== 'NEEDS_INFORMATION') return { continuation: existing, notificationEventId: null };
       const continuation = existing
         ? await tx.applicationContinuation.update({
             where: { id: existing.id },
@@ -221,8 +226,13 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
         });
       }
 
-      return continuation;
-    });
+      const notification = submit ? await enqueueAdminNotification(tx, {
+        key: `application.submitted:${id}:${continuation.submittedAt!.toISOString()}`,
+        type: 'APPLICATION_SUBMITTED', applicationId: id,
+      }) : null;
+      return { continuation, notificationEventId: notification?.id ?? null };
+    }, { timeout: 15_000 });
+    if (notificationEventId) after(() => tryAdminNotifications(notificationEventId));
 
     return NextResponse.json({ success: true, status: continuation.status, reviewStatus: continuation.reviewStatus, continuationId: continuation.id, selectedQuote: responseQuote(continuation.selectedQuote) });
   } catch (error) {

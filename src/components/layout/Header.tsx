@@ -4,7 +4,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { PhoneCall, UserRound, ChevronDown, LogOut, LayoutDashboard, ShieldCheck } from 'lucide-react';
+import { UserRound, ChevronDown, LogOut, LayoutDashboard, ShieldCheck } from 'lucide-react';
+import { BrokerEnquiryDialog } from '@/components/broker/BrokerEnquiryDialog';
 import { Button } from '@/components/ui/button';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { clearAppBrowserStorage } from '@/lib/clear-app-browser-storage';
@@ -63,9 +64,7 @@ export default function Header() {
           <span className="text-xl font-extrabold tracking-tight text-slate-900"><span className="text-primary">Open</span>Lending</span>
         </Link>
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="sm" className="hidden gap-2 rounded-full border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 hover:text-primary sm:flex">
-            <PhoneCall className="h-4 w-4" /> Talk to a Broker
-          </Button>
+          <BrokerEnquiryDialog key={user?.id ?? 'guest'} />
           {isLoaded && user ? (
             <div className="relative">
               <button type="button" aria-label="Open account menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(value => !value)} className="flex items-center gap-2 rounded-full border border-slate-200 bg-white p-1 pr-3 shadow-sm hover:border-primary/40">
