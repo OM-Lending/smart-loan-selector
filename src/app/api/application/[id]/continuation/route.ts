@@ -149,7 +149,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 
       if (validDate(applicant.residentialSince)) {
         const movedIn = new Date(`${applicant.residentialSince}T00:00:00`);
-        const historyCutoff = new Date(movedIn);
+        const historyCutoff = new Date();
         historyCutoff.setFullYear(historyCutoff.getFullYear() - 3);
         if (movedIn > historyCutoff) {
           const rows = Array.isArray(applicant.previousAddresses) ? applicant.previousAddresses as Record<string, unknown>[] : [];
@@ -167,7 +167,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
             const coversStart = first.from! <= historyCutoff;
             const coversCurrentMove = last.to!.getTime() >= movedIn.getTime() - 24 * 60 * 60 * 1000;
             const noGaps = parsedRows.every((row, index) => index === 0 || row.from!.getTime() <= parsedRows[index - 1].to!.getTime() + 24 * 60 * 60 * 1000);
-            if (!coversStart || !coversCurrentMove || !noGaps) validationErrors.push('Previous address dates must cover the three years before your current address, without gaps.');
+            if (!coversStart || !coversCurrentMove || !noGaps) validationErrors.push('Your current and previous address dates must cover the last three years without gaps.');
           }
         }
       }
