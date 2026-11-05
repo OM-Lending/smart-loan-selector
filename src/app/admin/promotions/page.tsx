@@ -1,5 +1,6 @@
 'use client';
 
+import { DatePicker } from '@/components/ui/date-picker';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, CheckCircle2, Clock3, ExternalLink, LoaderCircle, Megaphone, Pencil, RefreshCw, X } from 'lucide-react';
@@ -174,12 +175,12 @@ function PromotionEditor({ snapshot, initial, busy, onCancel, onPublish }: { sna
       <label className={labelClass}>Minimum loan amount<input type="number" min="0" step="1000" value={form.minimumLoanAmount} onChange={event => set('minimumLoanAmount', event.target.value)} className={fieldClass}/></label>
       <label className={labelClass}>Maximum loan amount<input type="number" min="0" step="1000" value={form.maximumLoanAmount} onChange={event => set('maximumLoanAmount', event.target.value)} className={fieldClass}/></label>
       <label className="flex items-center gap-3 self-end rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium text-slate-700"><input type="checkbox" checked={form.firstHomeBuyerOnly} onChange={event => set('firstHomeBuyerOnly', event.target.checked)} className="h-4 w-4 accent-primary"/>First home buyers only</label>
-      <label className={labelClass}>Application window starts<input type="date" value={form.applicationWindowStart} onChange={event => set('applicationWindowStart', event.target.value)} className={fieldClass}/></label>
-      <label className={labelClass}>Application window ends<input type="date" value={form.applicationWindowEnd} onChange={event => set('applicationWindowEnd', event.target.value)} className={fieldClass}/></label>
+      <label className={labelClass}>Application window starts<DatePicker allowClear ariaLabel="Application window starts" value={form.applicationWindowStart} onChange={value => set('applicationWindowStart', value)} disabled={busy}/></label>
+      <label className={labelClass}>Application window ends<DatePicker allowClear ariaLabel="Application window ends" value={form.applicationWindowEnd} onChange={value => set('applicationWindowEnd', value)} disabled={busy}/></label>
       <label className={labelClass}>Settlement within (days)<input type="number" min="0" max="3650" value={form.settlementWithinDays} onChange={event => set('settlementWithinDays', event.target.value)} className={fieldClass}/></label>
       <label className={labelClass}>Drawdown within (days)<input type="number" min="0" max="3650" value={form.drawdownWithinDays} onChange={event => set('drawdownWithinDays', event.target.value)} className={fieldClass}/></label>
-      <label className={labelClass}>Offer valid from<input type="date" value={form.validFrom} onChange={event => set('validFrom', event.target.value)} className={fieldClass}/></label>
-      <label className={labelClass}>Offer valid until<input type="date" value={form.validUntil} onChange={event => set('validUntil', event.target.value)} className={fieldClass}/></label>
+      <label className={labelClass}>Offer valid from<DatePicker allowClear ariaLabel="Offer valid from" value={form.validFrom} onChange={value => set('validFrom', value)} disabled={busy}/></label>
+      <label className={labelClass}>Offer valid until<DatePicker allowClear ariaLabel="Offer valid until" value={form.validUntil} onChange={value => set('validUntil', value)} disabled={busy}/></label>
       <label className={`${labelClass} sm:col-span-2 lg:col-span-3`}>Terms / notes<textarea rows={3} value={form.terms} onChange={event => set('terms', event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm leading-6 outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"/></label>
     </div>
     <div className="mt-5 flex flex-wrap justify-end gap-2"><button type="button" onClick={onCancel} disabled={busy} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><X className="h-4 w-4"/>Cancel</button><button type="submit" disabled={busy || hiddenRemoved} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50">{busy ? <LoaderCircle className="h-4 w-4 animate-spin"/> : <CheckCircle2 className="h-4 w-4"/>}Publish cashback offer</button></div>

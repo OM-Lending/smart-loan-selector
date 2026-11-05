@@ -7,7 +7,7 @@ export function validateContinuationAddresses(details: Record<string, unknown>, 
   const saved = object(previous);
   const errors: string[] = [];
   function check(address: unknown, selection: unknown, savedAddress: unknown, label: string) {
-    if (!address) return; // Incomplete drafts are allowed; submission checks required fields.
+    if (!address) return; // Address fields are optional, including on submission.
     if (typeof address === 'string' && address === savedAddress) return; // Retain previously saved and legacy addresses.
     const error = validateAddressSelection(address, selection);
     if (error) errors.push(`${label}: ${error}`);
@@ -25,6 +25,13 @@ export function validateContinuationAddresses(details: Record<string, unknown>, 
   if (Array.isArray(rows)) rows.forEach((row, index) => {
     const item = object(row);
     check(item.address, item.selection, savedAddresses.find(address => address === item.address), `Previous address ${index + 1}`);
+  });
+  const properties = object(details.properties).items;
+  const savedProperties = object(saved.properties).items;
+  const knownPropertyAddresses = Array.isArray(savedProperties) ? savedProperties.map(row => object(row).address) : [];
+  if (Array.isArray(properties)) properties.forEach((row, index) => {
+    const item = object(row);
+    check(item.address, item.selection, knownPropertyAddresses.find(address => address === item.address), `Property ${index + 1}`);
   });
   return errors;
 }

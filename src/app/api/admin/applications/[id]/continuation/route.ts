@@ -1,3 +1,4 @@
+import { continuationRecordsInclude, continuationDetailsForResponse } from '@/server/services/continuation-records';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/server/lib/prisma';
@@ -31,6 +32,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       user: { select: { fullName: true, email: true, phone: true } },
       continuation: {
         include: {
+          ...continuationRecordsInclude,
           selectedQuote: { select: { id: true, lenderName: true, productName: true, quotedRate: true, quotedRateType: true, quotedRepayment: true } },
           documents: { orderBy: { uploadedAt: 'desc' } },
         },
@@ -61,14 +63,14 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         reviewStatus: continuation.reviewStatus,
         brokerNote: continuation.brokerNote,
         submittedAt: continuation.submittedAt?.toISOString() ?? null,
-        details: continuation.details,
+        details: continuationDetailsForResponse(continuation),
         selectedQuote: {
           ...continuation.selectedQuote,
           quotedRate: continuation.selectedQuote.quotedRate.toString(),
         },
         documents: continuation.documents.map(document => ({
           id: document.id,
-          category: document.category,
+          category: document.category.toLowerCase(),
           fileName: document.fileName,
           contentType: document.contentType,
           sizeBytes: document.sizeBytes,

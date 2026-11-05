@@ -42,7 +42,7 @@ REMOVE: citi australia
 9. 增加一下 privacy term consent
 10. 上传文档过程中加一个 loading
 
-11. 调整 continue 之后收集信息的表格
+✅11. 调整 continue 之后收集信息的表格
 
 如下:
 

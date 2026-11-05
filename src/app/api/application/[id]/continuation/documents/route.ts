@@ -1,3 +1,4 @@
+import { applicationDocumentCategory } from '@/lib/application-documents';
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/server/lib/prisma';
@@ -10,7 +11,6 @@ const TYPES = {
   'image/jpeg': { extension: 'jpg', signature: (bytes: Uint8Array) => bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff },
   'image/png': { extension: 'png', signature: (bytes: Uint8Array) => bytes[0] === 0x89 && String.fromCharCode(...bytes.slice(1, 4)) === 'PNG' },
 } as const;
-const CATEGORIES = new Set(['identity', 'income', 'bank_statements', 'liabilities', 'property', 'refinance', 'other']);
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   try {
@@ -20,7 +20,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const form = await request.formData();
     const file = form.get('file');
     const category = form.get('category');
-    if (!(file instanceof File) || typeof category !== 'string' || !CATEGORIES.has(category)) return NextResponse.json({ error: 'Choose a document type and file.' }, { status: 400 });
+    const documentCategory = typeof category === 'string' ? applicationDocumentCategory(category) : undefined;
+    if (!(file instanceof File) || !documentCategory) return NextResponse.json({ error: 'Choose a document type and file.' }, { status: 400 });
     if (!file.size || file.size > MAX_FILE_SIZE) return NextResponse.json({ error: 'Files must be no larger than 10 MB.' }, { status: 413 });
     const type = TYPES[file.type as keyof typeof TYPES];
     if (!type) return NextResponse.json({ error: 'Upload a PDF, JPG or PNG file.' }, { status: 415 });
@@ -55,13 +56,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     try {
       const saved = await prisma.applicationDocument.create({ data: {
         continuationId: continuation.id,
-        category,
+        category: documentCategory,
         fileName: safeName,
         contentType: file.type,
         sizeBytes: file.size,
         storagePath: objectPath,
       }, select: { id: true, category: true, fileName: true, contentType: true, sizeBytes: true, uploadedAt: true } });
-      return NextResponse.json({ success: true, document: saved }, { status: 201 });
+      return NextResponse.json({ success: true, document: { ...saved, category: saved.category.toLowerCase() } }, { status: 201 });
     } catch (error) {
       await privateStorageRequest(objectPath, { method: 'DELETE' }).catch(() => undefined);
       throw error;

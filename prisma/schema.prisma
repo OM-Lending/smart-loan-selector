@@ -34,6 +34,47 @@ enum ApplicationContinuationStatus {
   SUBMITTED
 }
 
+enum ResidencyStatus {
+  AUSTRALIAN_CITIZEN
+  PERMANENT_RESIDENT
+  TEMPORARY_RESIDENT
+}
+
+enum OwnedPropertyUse {
+  OWNER_OCCUPIED
+  INVESTMENT
+}
+
+enum LeasingArrangement {
+  REAL_ESTATE_AGENT
+  PRIVATE
+}
+
+enum ContinuationEmploymentKind {
+  CURRENT
+  PREVIOUS
+}
+
+enum ApplicationDocumentCategory {
+  IDENTITY               @map("identity")
+  PAYSLIPS               @map("payslips")
+  SALARY_BANK_STATEMENTS @map("salary_bank_statements")
+  ATO_INCOME_STATEMENT   @map("ato_income_statement")
+  CAR_LOAN_STATEMENT     @map("car_loan_statement")
+  STUDENT_LOAN_STATEMENT @map("student_loan_statement")
+  MORTGAGE_STATEMENT     @map("mortgage_statement")
+  COUNCIL_RATES          @map("council_rates")
+  PURCHASE_CONTRACT      @map("purchase_contract")
+  RENTAL_STATEMENT       @map("rental_statement")
+  OTHER                  @map("other")
+  // Retained for existing uploads; no automatic reclassification.
+  INCOME                 @map("income")
+  BANK_STATEMENTS        @map("bank_statements")
+  LIABILITIES            @map("liabilities")
+  PROPERTY               @map("property")
+  REFINANCE              @map("refinance")
+}
+
 enum BrokerReviewStatus {
   NEW
   IN_REVIEW
@@ -120,6 +161,7 @@ enum EmploymentStatus {
   FULL_TIME
   PART_TIME
   CASUAL
+  SELF_EMPLOYED
 }
 
 enum RelationshipStatus {
@@ -213,9 +255,9 @@ model Profile {
 
   applications                 Application[]
   matchReviews                 AdminMatchReview[]
-  productRecommendationReviews LoanProduct[]      @relation("LoanProductRecommendationReviewer")
-  brokerEnquiries              BrokerEnquiry[]    @relation("EnquiryCustomer")
-  assignedEnquiries            BrokerEnquiry[]    @relation("EnquiryAssignee")
+  productRecommendationReviews LoanProduct[]           @relation("LoanProductRecommendationReviewer")
+  brokerEnquiries              BrokerEnquiry[]         @relation("EnquiryCustomer")
+  assignedEnquiries            BrokerEnquiry[]         @relation("EnquiryAssignee")
   enquiryActivities            BrokerEnquiryActivity[]
 
   @@map("profiles")
@@ -628,33 +670,136 @@ model ApplicationContinuation {
   status          ApplicationContinuationStatus @default(DRAFT)
   reviewStatus    BrokerReviewStatus            @default(NEW) @map("review_status")
   brokerNote      String?                       @map("broker_note") @db.VarChar(2000)
+  // Version 1: legacy free-form answers. Version 2: form snapshot saved atomically
+  // with the typed records below. Typed records are authoritative for new forms.
   details         Json                          @default("{}")
+  formVersion     Int                           @default(1) @map("form_version") @db.SmallInt
   startedAt       DateTime                      @default(now()) @map("started_at")
   submittedAt     DateTime?                     @map("submitted_at")
   updatedAt       DateTime                      @updatedAt @map("updated_at")
 
-  application   Application           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  selectedQuote ApplicationQuote      @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
+  application   Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  selectedQuote ApplicationQuote         @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
   documents     ApplicationDocument[]
+  applicants    ContinuationApplicant[]
+  employments   ContinuationEmployment[]
+  assets        ContinuationAssets?
+  properties    ContinuationProperty[]
 
   @@index([selectedQuoteId])
   @@map("application_continuations")
 }
 
 model ApplicationDocument {
-  id             String   @id @default(uuid()) @db.Uuid
-  continuationId String   @map("continuation_id") @db.Uuid
-  category       String   @db.VarChar(60)
-  fileName       String   @map("file_name") @db.VarChar(255)
-  contentType    String   @map("content_type") @db.VarChar(100)
-  sizeBytes      Int      @map("size_bytes")
-  storagePath    String   @unique @map("storage_path") @db.VarChar(500)
-  uploadedAt     DateTime @default(now()) @map("uploaded_at")
+  id             String                      @id @default(uuid()) @db.Uuid
+  continuationId String                      @map("continuation_id") @db.Uuid
+  category       ApplicationDocumentCategory
+  fileName       String                      @map("file_name") @db.VarChar(255)
+  contentType    String                      @map("content_type") @db.VarChar(100)
+  sizeBytes      Int                         @map("size_bytes")
+  storagePath    String                      @unique @map("storage_path") @db.VarChar(500)
+  uploadedAt     DateTime                    @default(now()) @map("uploaded_at")
 
   continuation ApplicationContinuation @relation(fields: [continuationId], references: [id], onDelete: Restrict)
 
   @@index([continuationId, category])
   @@map("application_documents")
+}
+
+model ContinuationApplicant {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  continuationId     String                  @map("continuation_id") @db.Uuid
+  applicantNumber    Int                     @map("applicant_number") @db.SmallInt
+  fullName           String?                 @map("full_name") @db.VarChar(200)
+  email              String?                 @db.VarChar(254)
+  mobile             String?                 @db.VarChar(24)
+  residencyStatus    ResidencyStatus?        @map("residency_status")
+  maritalStatus      RelationshipStatus?     @map("marital_status")
+  residentialAddress String?                 @map("residential_address") @db.VarChar(1000)
+  residentialSince   DateTime?               @map("residential_since") @db.Date
+  housingArrangement String?                 @map("housing_arrangement") @db.VarChar(500)
+  dependents         Int?                    @db.SmallInt
+  employmentStatus   EmploymentStatus?       @map("employment_status")
+  annualIncome       Decimal?                @map("annual_income") @db.Decimal(18, 2)
+  createdAt          DateTime                @default(now()) @map("created_at")
+  updatedAt          DateTime                @updatedAt @map("updated_at")
+  continuation       ApplicationContinuation @relation(fields: [continuationId], references: [id], onDelete: Cascade)
+  previousAddresses  ContinuationAddress[]
+
+  @@unique([continuationId, applicantNumber])
+  @@map("continuation_applicants")
+}
+
+model ContinuationAddress {
+  id          String                @id @default(uuid()) @db.Uuid
+  applicantId String                @map("applicant_id") @db.Uuid
+  position    Int                   @db.SmallInt
+  address     String?               @db.VarChar(1000)
+  moveInDate  DateTime?             @map("move_in_date") @db.Date
+  moveOutDate DateTime?             @map("move_out_date") @db.Date
+  applicant   ContinuationApplicant @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+
+  @@unique([applicantId, position])
+  @@map("continuation_addresses")
+}
+
+model ContinuationEmployment {
+  id               String                     @id @default(uuid()) @db.Uuid
+  continuationId   String                     @map("continuation_id") @db.Uuid
+  kind             ContinuationEmploymentKind
+  employmentType   EmploymentStatus?          @map("employment_type")
+  annualIncome     Decimal?                   @map("annual_income") @db.Decimal(18, 2)
+  position         String?                    @db.VarChar(500)
+  phone            String?                    @db.VarChar(24)
+  workplaceAddress String?                    @map("workplace_address") @db.VarChar(1000)
+  startDate        DateTime?                  @map("start_date") @db.Date
+  history          String?                    @db.VarChar(10000)
+  createdAt        DateTime                   @default(now()) @map("created_at")
+  updatedAt        DateTime                   @updatedAt @map("updated_at")
+  continuation     ApplicationContinuation    @relation(fields: [continuationId], references: [id], onDelete: Cascade)
+
+  @@unique([continuationId, kind])
+  @@map("continuation_employments")
+}
+
+model ContinuationAssets {
+  continuationId         String                  @id @map("continuation_id") @db.Uuid
+  savings                String?                 @db.VarChar(5000)
+  cars                   String?                 @db.VarChar(5000)
+  carLoans               String?                 @map("car_loans") @db.VarChar(5000)
+  creditCards            String?                 @map("credit_cards") @db.VarChar(5000)
+  studentLoan            String?                 @map("student_loan") @db.VarChar(5000)
+  weeklyRent             Decimal?                @map("weekly_rent") @db.Decimal(18, 2)
+  privateHealthInsurance String?                 @map("private_health_insurance") @db.VarChar(5000)
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  continuation           ApplicationContinuation @relation(fields: [continuationId], references: [id], onDelete: Cascade)
+
+  @@map("continuation_assets")
+}
+
+model ContinuationProperty {
+  id             String                  @id @default(uuid()) @db.Uuid
+  continuationId String                  @map("continuation_id") @db.Uuid
+  position       Int                     @db.SmallInt
+  use            OwnedPropertyUse?
+  address        String?                 @db.VarChar(1000)
+  propertyType   String?                 @map("property_type") @db.VarChar(500)
+  bedrooms       Int?                    @db.SmallInt
+  ownership      String?                 @db.VarChar(500)
+  marketValue    Decimal?                @map("market_value") @db.Decimal(18, 2)
+  lender         String?                 @db.VarChar(120)
+  loanLimit      Decimal?                @map("loan_limit") @db.Decimal(18, 2)
+  loanBalance    Decimal?                @map("loan_balance") @db.Decimal(18, 2)
+  loanStartDate  DateTime?               @map("loan_start_date") @db.Date
+  rentalPerWeek  Decimal?                @map("rental_per_week") @db.Decimal(18, 2)
+  leasedThrough  LeasingArrangement?     @map("leased_through")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+  continuation   ApplicationContinuation @relation(fields: [continuationId], references: [id], onDelete: Cascade)
+
+  @@unique([continuationId, position])
+  @@index([use])
+  @@map("continuation_properties")
 }
 
 model AdminMatchReview {
@@ -711,8 +856,8 @@ model BrokerEnquiryActivity {
   type       EnquiryActivityType
   channel    EnquiryContactChannel?
   outcome    EnquiryContactOutcome?
-  fromStatus BrokerEnquiryStatus?    @map("from_status")
-  toStatus   BrokerEnquiryStatus?    @map("to_status")
+  fromStatus BrokerEnquiryStatus?   @map("from_status")
+  toStatus   BrokerEnquiryStatus?   @map("to_status")
   note       String?                @db.VarChar(2000)
   createdAt  DateTime               @default(now()) @map("created_at")
 
@@ -733,8 +878,8 @@ model NotificationEvent {
   enquiryId     String?          @map("enquiry_id") @db.Uuid
   createdAt     DateTime         @default(now()) @map("created_at")
 
-  application Application?          @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  enquiry     BrokerEnquiry?        @relation(fields: [enquiryId], references: [id], onDelete: Restrict)
+  application Application?           @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  enquiry     BrokerEnquiry?         @relation(fields: [enquiryId], references: [id], onDelete: Restrict)
   deliveries  NotificationDelivery[]
 
   @@index([environment, createdAt])

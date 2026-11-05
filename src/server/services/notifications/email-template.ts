@@ -6,6 +6,12 @@ export type NotificationWithSource = Prisma.NotificationEventGetPayload<{ includ
 } }>;
 const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!);
 const money = (value: unknown) => value == null ? 'Not provided' : new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(Number(String(value)));
+const sydneyDateTime = (value: Date | null | undefined) => value == null ? 'Not provided' : new Intl.DateTimeFormat('en-AU', {
+  timeZone: 'Australia/Sydney',
+  day: '2-digit', month: 'short', year: 'numeric',
+  hour: 'numeric', minute: '2-digit', second: '2-digit',
+  hour12: true, timeZoneName: 'short',
+}).format(value);
 
 export function buildAdminEmail(event: NotificationWithSource, baseUrl: string) {
   const submitted = event.type === 'APPLICATION_SUBMITTED';
@@ -21,7 +27,7 @@ export function buildAdminEmail(event: NotificationWithSource, baseUrl: string) 
     ...(submitted ? [
       ['Selected lender', application.continuation?.selectedQuote.lenderName],
       ['Selected product', application.continuation?.selectedQuote.productName],
-      ['Submitted at', application.continuation?.submittedAt?.toISOString()],
+      ['Submitted at (Sydney time)', sydneyDateTime(application.continuation?.submittedAt)],
     ] as Array<[string, unknown]> : []),
   ] : [];
   if (!rows.length) throw new Error('NOTIFICATION_SOURCE_NOT_FOUND');
