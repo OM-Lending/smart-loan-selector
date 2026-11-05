@@ -1,3 +1,6 @@
+import { continuationRecordsInclude, continuationDetailsForResponse, saveContinuationRecords } from '@/server/services/continuation-records';
+import { editableContinuationDetails, RESIDENCY_OPTIONS } from '@/lib/continuation-form';
+import { validateContinuationDetails } from '@/lib/validations/continuation';
 import { after, NextResponse } from 'next/server';
 import { enqueueAdminNotification, tryAdminNotifications } from '@/server/services/notifications/notification.service';
 import { z } from 'zod';
@@ -25,7 +28,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const { id } = Params.parse(await context.params);
     const application = await prisma.application.findFirst({
       where: { id, userId: identity.profile.id },
-      select: { id: true, goal: true, currentStage: true, employmentStatus: true, employmentStartDate: true, grossAnnualSalary: true, relationshipStatus: true, user: { select: { fullName: true, email: true, phone: true } }, continuation: { include: { selectedQuote: true, documents: { orderBy: { uploadedAt: 'desc' } } } } },
+      select: { id: true, goal: true, currentStage: true, employmentStatus: true, employmentStartDate: true, grossAnnualSalary: true, relationshipStatus: true, user: { select: { fullName: true, email: true, phone: true } }, continuation: { include: { ...continuationRecordsInclude, selectedQuote: true, documents: { orderBy: { uploadedAt: 'desc' } } } } },
     });
     if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     const continuation = application.continuation;
@@ -47,11 +50,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         brokerNote: continuation.brokerNote,
         submittedAt: continuation.submittedAt?.toISOString() ?? null,
         details: normalizeApplicantMaritalStatuses(
-          continuation.details && typeof continuation.details === 'object' && !Array.isArray(continuation.details) ? continuation.details as Record<string, unknown> : {},
+          continuationDetailsForResponse(continuation),
           continuation.status === 'SUBMITTED' && continuation.reviewStatus !== 'NEEDS_INFORMATION',
         ),
         selectedQuote: responseQuote(continuation.selectedQuote),
-        documents: continuation.documents.map(({ id, category, fileName, contentType, sizeBytes, uploadedAt }) => ({ id, category, fileName, contentType, sizeBytes, uploadedAt })),
+        documents: continuation.documents.map(({ id, category, fileName, contentType, sizeBytes, uploadedAt }) => ({ id, category: category.toLowerCase(), fileName, contentType, sizeBytes, uploadedAt })),
       } : null,
     });
   } catch (error) {
@@ -70,7 +73,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     const parsed = SaveBody.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: 'Invalid application details', details: parsed.error.flatten().fieldErrors }, { status: 400 });
     const { quoteId, submit } = parsed.data;
-    const details = normalizeApplicantMaritalStatuses(parsed.data.details);
+    const details = editableContinuationDetails(normalizeApplicantMaritalStatuses(parsed.data.details));
     if (JSON.stringify(details).length > 100_000) return NextResponse.json({ error: 'Application details are too large' }, { status: 413 });
 
     const application = await prisma.application.findFirst({ where: { id, userId: identity.profile.id }, select: { id: true } });
@@ -83,6 +86,10 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     for (const key of ['applicant', 'applicant2']) {
       const applicant = details[key];
       if (!applicant || typeof applicant !== 'object' || Array.isArray(applicant)) continue;
+      const residency = (applicant as Record<string, unknown>).visaStatus;
+      if (residency !== undefined && residency !== null && residency !== '' && !RESIDENCY_OPTIONS.some(option => option.value === residency)) {
+        return NextResponse.json({ error: 'Choose Australian citizen, Australian permanent resident or Temporary resident.' }, { status: 400 });
+      }
       const status = (applicant as Record<string, unknown>).maritalStatus;
       if (status !== undefined && status !== null && status !== '' && !RELATIONSHIP_STATUSES.some(option => option === status)) {
         return NextResponse.json({ error: 'Choose Single, Married or De facto for marital status.' }, { status: 400 });
@@ -95,87 +102,10 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     const quote = await prisma.applicationQuote.findFirst({ where: { id: resolvedQuoteId, applicationId: id }, select: { id: true } });
     if (!quote) return NextResponse.json({ error: 'Selected product not found' }, { status: 404 });
 
-    if (submit) {
-      const applicant = details.applicant && typeof details.applicant === 'object' ? details.applicant as Record<string, unknown> : {};
-      const applicant2 = details.applicant2 && typeof details.applicant2 === 'object' ? details.applicant2 as Record<string, unknown> : {};
-      const employment = details.currentEmployment && typeof details.currentEmployment === 'object' ? details.currentEmployment as Record<string, unknown> : {};
-      const assets = details.assetsAndLiabilities && typeof details.assetsAndLiabilities === 'object' ? details.assetsAndLiabilities as Record<string, unknown> : {};
-      const loanRequirements = details.loanRequirements && typeof details.loanRequirements === 'object' ? details.loanRequirements as Record<string, unknown> : {};
-      const docs = await prisma.applicationDocument.findMany({ where: { continuationId: existing?.id ?? '00000000-0000-0000-0000-000000000000' }, select: { category: true } });
-      const uploaded = new Set(docs.map(item => item.category));
-      const missing = [
-        ['applicant.fullName', applicant.fullName],
-        ['applicant.dateOfBirth', applicant.dateOfBirth],
-        ['applicant.mobile', applicant.mobile],
-        ['applicant.email', applicant.email],
-        ['applicant.visaStatus', applicant.visaStatus],
-        ['applicant.maritalStatus', applicant.maritalStatus],
-        ['applicant.residentialAddress', applicant.residentialAddress],
-        ['applicant.residentialSince', applicant.residentialSince],
-        ['currentEmployment.employerName', employment.employerName],
-        ['currentEmployment.position', employment.position],
-        ['currentEmployment.startDate', employment.startDate],
-        ['currentEmployment.employerContactName', employment.employerContactName],
-        ['currentEmployment.employerContactPhone', employment.employerContactPhone],
-        ['currentEmployment.employerContactPosition', employment.employerContactPosition],
-        ['currentEmployment.annualIncome', employment.annualIncome],
-        ['currentEmployment.employmentType', employment.employmentType],
-        ['assetsAndLiabilities.savings (enter None if not applicable)', assets.savings],
-        ['assetsAndLiabilities.creditCards (enter None if not applicable)', assets.creditCards],
-        ['loanRequirements.loan1', loanRequirements.loan1],
-      ].filter(([, value]) => !String(value ?? '').trim()).map(([key]) => key as string);
-
-      const validationErrors: string[] = [];
-      const validDate = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
-      const positiveInteger = (value: unknown) => typeof value === 'string' && /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value));
-      const validPhone = (value: unknown) => typeof value === 'string' && /^\+?[0-9() -]{8,24}$/.test(value) && (value.match(/\d/g)?.length ?? 0) >= 8 && (value.match(/\d/g)?.length ?? 0) <= 15;
-      if (!RELATIONSHIP_STATUSES.some(status => status === applicant.maritalStatus)) validationErrors.push('Choose a valid marital status.');
-      if (!['FULL_TIME', 'PART_TIME', 'CASUAL', 'SELF_EMPLOYED'].includes(String(employment.employmentType))) validationErrors.push('Choose a valid employment type.');
-      if (!positiveInteger(employment.annualIncome)) validationErrors.push('Annual income must be a positive whole number without a leading zero.');
-      if (applicant2.annualIncome !== undefined && String(applicant2.annualIncome).trim() !== '' && !positiveInteger(applicant2.annualIncome)) validationErrors.push('Applicant 2 annual income must be a positive whole number without a leading zero.');
-      if (applicant2.maritalStatus && !RELATIONSHIP_STATUSES.some(status => status === applicant2.maritalStatus)) validationErrors.push('Choose a valid marital status for Applicant 2.');
-      if (applicant2.employmentStatus && !['FULL_TIME', 'PART_TIME', 'CASUAL', 'SELF_EMPLOYED'].includes(String(applicant2.employmentStatus))) validationErrors.push('Choose a valid employment type for Applicant 2.');
-      if (!validDate(applicant.dateOfBirth) || new Date(`${applicant.dateOfBirth}T00:00:00`) >= new Date()) validationErrors.push('Enter a valid date of birth for Applicant 1.');
-      if (typeof applicant.email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant.email)) validationErrors.push('Enter a valid email address.');
-      if (!validPhone(applicant.mobile)) validationErrors.push('Enter a valid mobile number.');
-      if (!validDate(applicant.residentialSince) || new Date(`${applicant.residentialSince}T00:00:00`) > new Date()) validationErrors.push('Enter a valid date for when you moved into your current home.');
-      if (!validDate(employment.startDate) || new Date(`${employment.startDate}T00:00:00`) > new Date()) validationErrors.push('Enter a valid employment start date.');
-      if (!validPhone(employment.employerContactPhone)) validationErrors.push('Enter a valid phone number for the employer contact.');
-
-      const dependentCount = Number(applicant.dependents ?? 0);
-      const dependentDates = Array.isArray(applicant.dependentBirthDates) ? applicant.dependentBirthDates : [];
-      if (!Number.isInteger(dependentCount) || dependentCount < 0 || dependentCount > 5) validationErrors.push('Choose between 0 and 5 dependent children.');
-      else if (dependentDates.length !== dependentCount || dependentDates.some(date => !validDate(date) || new Date(`${date}T00:00:00`) >= new Date())) validationErrors.push('Enter a valid date of birth for each dependent child.');
-
-      if (validDate(applicant.residentialSince)) {
-        const movedIn = new Date(`${applicant.residentialSince}T00:00:00`);
-        const historyCutoff = new Date();
-        historyCutoff.setFullYear(historyCutoff.getFullYear() - 3);
-        if (movedIn > historyCutoff) {
-          const rows = Array.isArray(applicant.previousAddresses) ? applicant.previousAddresses as Record<string, unknown>[] : [];
-          const parsedRows = rows.map(row => ({
-            address: typeof row.address === 'string' ? row.address.trim() : '',
-            from: validDate(row.moveInDate) ? new Date(`${row.moveInDate}T00:00:00`) : null,
-            to: validDate(row.moveOutDate) ? new Date(`${row.moveOutDate}T00:00:00`) : null,
-          }));
-          if (!parsedRows.length || parsedRows.some(row => !row.address || !row.from || !row.to || row.to < row.from || row.to >= movedIn)) {
-            validationErrors.push('Add each previous address with valid move-in and move-out dates.');
-          } else {
-            parsedRows.sort((a, b) => a.from!.getTime() - b.from!.getTime());
-            const first = parsedRows[0];
-            const last = parsedRows[parsedRows.length - 1];
-            const coversStart = first.from! <= historyCutoff;
-            const coversCurrentMove = last.to!.getTime() >= movedIn.getTime() - 24 * 60 * 60 * 1000;
-            const noGaps = parsedRows.every((row, index) => index === 0 || row.from!.getTime() <= parsedRows[index - 1].to!.getTime() + 24 * 60 * 60 * 1000);
-            if (!coversStart || !coversCurrentMove || !noGaps) validationErrors.push('Your current and previous address dates must cover the last three years without gaps.');
-          }
-        }
-      }
-
-      for (const category of ['identity', 'income']) if (!uploaded.has(category)) missing.push(`document:${category}`);
-      if (missing.length || validationErrors.length) return NextResponse.json({
-        error: 'Review the required fields and correct the highlighted information before submitting.',
-        missing,
+    {
+      const validationErrors = validateContinuationDetails(details);
+      if (validationErrors.length) return NextResponse.json({
+        error: 'Review the information you provided and correct any invalid values before saving. You can leave any field blank.',
         validationErrors,
       }, { status: 400 });
     }
@@ -192,6 +122,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
             data: {
               selectedQuoteId: resolvedQuoteId,
               details: jsonDetails,
+              formVersion: 2,
               ...(submit
                 ? { status: 'SUBMITTED' as const, reviewStatus: 'NEW' as const, brokerNote: null, submittedAt: new Date() }
                 : existing.status === 'SUBMITTED'
@@ -205,10 +136,13 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
               applicationId: id,
               selectedQuoteId: resolvedQuoteId,
               details: jsonDetails,
+              formVersion: 2,
               ...(submit ? { status: 'SUBMITTED' as const, submittedAt: new Date() } : {}),
             },
             include: { selectedQuote: true },
           });
+
+      await saveContinuationRecords(tx, continuation.id, details);
 
       await tx.application.updateMany({
         where: { id, userId: profileId, applyClickedAt: null },
