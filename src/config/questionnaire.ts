@@ -39,6 +39,7 @@ export const QUESTIONNAIRE = {
     { id: 'FULL_TIME', label: 'Full-time' },
     { id: 'PART_TIME', label: 'Part-time' },
     { id: 'CASUAL', label: 'Casual' },
+    { id: 'SELF_EMPLOYED', label: 'Self-employed' },
   ] as const,
   relationshipStatuses: RELATIONSHIP_OPTIONS,
   // Standardized Boolean Options

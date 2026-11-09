@@ -1,3 +1,4 @@
+import { businessProfileData } from '@/server/services/self-employment-records';
 import { after, NextResponse } from 'next/server';
 import { enqueueAdminNotification, tryAdminNotifications } from '@/server/services/notifications/notification.service';
 import { prisma } from '@/server/lib/prisma';
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
           fixedYears: applicationData.fixedYears,
           employmentStatus: applicationData.employmentStatus,
           employmentStartDate: applicationData.employmentStartDate,
-          grossAnnualSalary: applicationData.grossAnnualSalary,
+          grossAnnualSalary: applicationData.employmentStatus === 'SELF_EMPLOYED' ? null : applicationData.grossAnnualSalary,
           relationshipStatus: applicationData.relationshipStatus,
           partnerEmploymentStatus: applicationData.partnerEmploymentStatus,
           partnerEmploymentStartDate: applicationData.partnerEmploymentStartDate,
@@ -131,6 +132,10 @@ export async function POST(request: Request) {
           hasCreditCard: applicationData.hasCreditCard,
           creditCardLimit: applicationData.creditCardLimit,
           currentStage: 'LEAD_CAPTURED',
+          businessProfiles: { create: [
+            ...(applicationData.employmentStatus === 'SELF_EMPLOYED' ? [{ applicantNumber: 1, ...businessProfileData(applicationData.selfEmployment) }] : []),
+            ...(applicationData.partnerEmploymentStatus === 'SELF_EMPLOYED' ? [{ applicantNumber: 2, ...businessProfileData(applicationData.partnerSelfEmployment) }] : []),
+          ] },
         }
       });
       

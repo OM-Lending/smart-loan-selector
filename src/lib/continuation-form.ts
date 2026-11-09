@@ -76,6 +76,20 @@ export function editableContinuationDetails(details: Record<string, unknown>, no
       }
     }
   }
+  const employment = result.currentEmployment;
+  if (employment && typeof employment === 'object' && !Array.isArray(employment)) {
+    const values = employment as Record<string, unknown>;
+    if (values.employmentType === 'SELF_EMPLOYED') {
+      for (const key of ['annualIncome', 'position', 'officePhone', 'officeAddress', 'officeAddressSelection', 'startDate']) delete values[key];
+      delete result.previousEmployment;
+    } else delete values.business;
+  }
+  const secondApplicant = result.applicant2;
+  if (secondApplicant && typeof secondApplicant === 'object' && !Array.isArray(secondApplicant)) {
+    const values = secondApplicant as Record<string, unknown>;
+    if (values.employmentStatus === 'SELF_EMPLOYED') delete values.annualIncome;
+    else delete values.business;
+  }
   const properties = result.properties;
   if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
     const items = (properties as Record<string, unknown>).items;

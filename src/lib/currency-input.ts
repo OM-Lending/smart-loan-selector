@@ -1,11 +1,13 @@
 // Keep separators in the display only. Form values remain unformatted strings.
-export function normalizeCurrencyInput(value: string, fractionDigits = 2): string | null {
-  const raw = value.replace(/[$,\s]/g, '');
+export function normalizeCurrencyInput(value: string, fractionDigits = 2, allowNegative = false): string | null {
+  const cleaned = value.replace(/[$,\s]/g, '');
+  const negative = allowNegative && cleaned.startsWith('-');
+  const raw = negative ? cleaned.slice(1) : cleaned;
   if (!/^\d*(\.\d*)?$/.test(raw)) return null;
   const [integer, fraction] = raw.split('.');
   if (integer.length > 10 || (fraction !== undefined && (fractionDigits === 0 || fraction.length > fractionDigits))) return null;
   const whole = integer.replace(/^0+(?=\d)/, '') || (fraction !== undefined ? '0' : '');
-  return fraction === undefined ? whole : `${whole}.${fraction}`;
+  return `${negative ? '-' : ''}${fraction === undefined ? whole : `${whole}.${fraction}`}`;
 }
 
 export function formatCurrencyInput(value: string | number | null | undefined): string {

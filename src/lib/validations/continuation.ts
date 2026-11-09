@@ -1,3 +1,4 @@
+import { SelfEmploymentSchema } from '@/lib/validations/self-employment';
 import { z } from 'zod';
 import { EMPLOYMENT_OPTIONS, RESIDENCY_OPTIONS } from '@/lib/continuation-form';
 import { RELATIONSHIP_STATUSES } from '@/lib/relationship-status';
@@ -35,8 +36,8 @@ const property = z.object({
 // Values the customer does provide still have to be well formed.
 export const continuationDetailsSchema = z.object({
   applicant: applicant.optional(),
-  applicant2: applicant.extend({ employmentStatus: employment, annualIncome: income }).optional(),
-  currentEmployment: z.object({ annualIncome: income, employmentType: employment, startDate: date, officePhone: phone, position: optional(z.string().max(500)), officeAddress: optional(z.string().max(1000)) }).passthrough().optional(),
+  applicant2: applicant.extend({ employmentStatus: employment, annualIncome: income, business: SelfEmploymentSchema.optional() }).optional(),
+  currentEmployment: z.object({ annualIncome: income, employmentType: employment, business: SelfEmploymentSchema.optional(), startDate: date, officePhone: phone, position: optional(z.string().max(500)), officeAddress: optional(z.string().max(1000)) }).passthrough().optional(),
   previousEmployment: z.object({ officePhone: phone, history: optional(z.string().max(10000)) }).passthrough().optional(),
   assetsAndLiabilities: z.object({ weeklyRent: money, ...Object.fromEntries(['savings', 'cars', 'carLoans', 'creditCards', 'studentLoan', 'privateHealthInsurance'].map(key => [key, optional(z.string().max(5000))])) }).passthrough().optional(),
   properties: z.object({ items: z.array(property).max(50, 'Add no more than 50 properties.').optional() }).passthrough().optional(),

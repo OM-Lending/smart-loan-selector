@@ -1,3 +1,4 @@
+import { businessProfileData, businessProfileForResponse } from '@/server/services/self-employment-records';
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -6,6 +7,7 @@ import { continuationDetailsSchema } from '@/lib/validations/continuation';
 export const continuationRecordsInclude = {
   applicants: { orderBy: { applicantNumber: 'asc' }, include: { previousAddresses: { orderBy: { position: 'asc' } } } },
   employments: true,
+  businessProfiles: { orderBy: { applicantNumber: 'asc' } },
   assets: true,
   properties: { orderBy: { position: 'asc' } },
 } satisfies Prisma.ApplicationContinuationInclude;
@@ -25,6 +27,7 @@ export async function saveContinuationRecords(tx: Prisma.TransactionClient, cont
   // atomically. Unique ordinals retain the displayed applicant/property order.
   await tx.continuationApplicant.deleteMany({ where: { continuationId } });
   await tx.continuationEmployment.deleteMany({ where: { continuationId } });
+  await tx.continuationBusinessProfile.deleteMany({ where: { continuationId } });
   await tx.continuationProperty.deleteMany({ where: { continuationId } });
   const addresses: Prisma.ContinuationAddressCreateManyInput[] = [];
   const applicants: Prisma.ContinuationApplicantCreateManyInput[] = [];
@@ -53,6 +56,10 @@ export async function saveContinuationRecords(tx: Prisma.TransactionClient, cont
   }
   if (data.previousEmployment) employments.push({ continuationId, kind: 'PREVIOUS', phone: text(data.previousEmployment.officePhone), history: text(data.previousEmployment.history) });
   if (employments.length) await tx.continuationEmployment.createMany({ data: employments });
+  const businessProfiles: Prisma.ContinuationBusinessProfileCreateManyInput[] = [];
+  if (data.currentEmployment?.employmentType === 'SELF_EMPLOYED') businessProfiles.push({ continuationId, applicantNumber: 1, ...businessProfileData(data.currentEmployment.business) });
+  if (data.applicant2?.employmentStatus === 'SELF_EMPLOYED') businessProfiles.push({ continuationId, applicantNumber: 2, ...businessProfileData(data.applicant2.business) });
+  if (businessProfiles.length) await tx.continuationBusinessProfile.createMany({ data: businessProfiles });
   const item = record(data.assetsAndLiabilities);
   const assets = { savings: text(item.savings), cars: text(item.cars), carLoans: text(item.carLoans), creditCards: text(item.creditCards), studentLoan: text(item.studentLoan), weeklyRent: decimal(item.weeklyRent), privateHealthInsurance: text(item.privateHealthInsurance) };
   await tx.continuationAssets.upsert({ where: { continuationId }, create: { continuationId, ...assets }, update: assets });
@@ -97,5 +104,9 @@ export function continuationDetailsForResponse(continuation: ContinuationWithRec
     propertyType: property.propertyType ?? '', bedrooms: property.bedrooms ?? '', ownership: property.ownership ?? '',
     ...(property.use === 'INVESTMENT' ? { marketValue: property.marketValue?.toString() ?? '', lender: property.lender ?? '', loanLimit: property.loanLimit?.toString() ?? '', loanBalance: property.loanBalance?.toString() ?? '', loanStartDate: dateText(property.loanStartDate), rentalPerWeek: property.rentalPerWeek?.toString() ?? '', leasedThrough: property.leasedThrough ?? '' } : {}),
   })) };
+  for (const profile of continuation.businessProfiles) {
+    const key = profile.applicantNumber === 1 ? 'currentEmployment' : 'applicant2';
+    details[key] = { ...record(details[key]), business: businessProfileForResponse(profile) };
+  }
   return details;
 }

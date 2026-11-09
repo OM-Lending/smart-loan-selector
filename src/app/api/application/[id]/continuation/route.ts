@@ -1,3 +1,4 @@
+import { businessProfileForResponse } from '@/server/services/self-employment-records';
 import { continuationRecordsInclude, continuationDetailsForResponse, saveContinuationRecords } from '@/server/services/continuation-records';
 import { editableContinuationDetails, RESIDENCY_OPTIONS } from '@/lib/continuation-form';
 import { validateContinuationDetails } from '@/lib/validations/continuation';
@@ -28,7 +29,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const { id } = Params.parse(await context.params);
     const application = await prisma.application.findFirst({
       where: { id, userId: identity.profile.id },
-      select: { id: true, goal: true, currentStage: true, employmentStatus: true, employmentStartDate: true, grossAnnualSalary: true, relationshipStatus: true, user: { select: { fullName: true, email: true, phone: true } }, continuation: { include: { ...continuationRecordsInclude, selectedQuote: true, documents: { orderBy: { uploadedAt: 'desc' } } } } },
+      select: { id: true, goal: true, currentStage: true, employmentStatus: true, employmentStartDate: true, grossAnnualSalary: true, partnerEmploymentStatus: true, partnerGrossSalary: true, partnerEmploymentStartDate: true, businessProfiles: true, relationshipStatus: true, user: { select: { fullName: true, email: true, phone: true } }, continuation: { include: { ...continuationRecordsInclude, selectedQuote: true, documents: { orderBy: { uploadedAt: 'desc' } } } } },
     });
     if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     const continuation = application.continuation;
@@ -40,7 +41,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       knownAnswers: {
         employmentStatus: application.employmentStatus,
         employmentStartDate: application.employmentStartDate,
-        annualIncome: application.grossAnnualSalary.toString(),
+        annualIncome: application.grossAnnualSalary?.toString() ?? '',
+        selfEmployment: businessProfileForResponse(application.businessProfiles.find(profile => profile.applicantNumber === 1)),
+        partnerSelfEmployment: businessProfileForResponse(application.businessProfiles.find(profile => profile.applicantNumber === 2)),
+        partnerEmploymentStatus: application.partnerEmploymentStatus,
+        partnerAnnualIncome: application.partnerGrossSalary?.toString() ?? '',
         maritalStatus: normalizeRelationshipStatus(application.relationshipStatus) ?? '',
       },
       continuation: continuation ? {

@@ -7,11 +7,12 @@ type Props = Omit<React.ComponentProps<typeof Input>, 'type' | 'value' | 'onChan
   value: string | number | null | undefined;
   onValueChange: (value: string) => void;
   fractionDigits?: 0 | 2;
+  allowNegative?: boolean;
 };
 
-export function CurrencyInput({ value, onValueChange, fractionDigits = 2, ...props }: Props) {
+export function CurrencyInput({ value, onValueChange, fractionDigits = 2, allowNegative = false, ...props }: Props) {
   return <Input {...props} type="text" inputMode={fractionDigits === 0 ? 'numeric' : 'decimal'} value={formatCurrencyInput(value)} onChange={event => {
-    const next = normalizeCurrencyInput(event.target.value, fractionDigits);
+    const next = normalizeCurrencyInput(event.target.value, fractionDigits, allowNegative);
     if (next === null) return;
     const input = event.currentTarget;
     const significantBeforeCaret = input.value.slice(0, input.selectionStart ?? 0).replace(/[$,\s]/g, '').length;

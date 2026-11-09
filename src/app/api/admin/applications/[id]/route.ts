@@ -1,3 +1,4 @@
+import { businessProfileForResponse } from '@/server/services/self-employment-records';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/server/lib/prisma';
@@ -15,6 +16,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const application = await prisma.application.findFirst({
     where: { id: parsedId.data, user: { deletedAt: null } },
     include: {
+      businessProfiles: true,
       user: { select: { id: true, fullName: true, email: true, phone: true, createdAt: true } },
       recommendationRuns: {
         take: 1,
@@ -70,11 +72,21 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       fixedYears: application.fixedYears,
       employmentStatus: application.employmentStatus,
       employmentStartDate: application.employmentStartDate,
-      grossAnnualSalary: application.grossAnnualSalary.toString(),
+      grossAnnualSalary: application.grossAnnualSalary?.toString() ?? null,
       relationshipStatus: application.relationshipStatus,
       partnerEmploymentStatus: application.partnerEmploymentStatus,
       partnerEmploymentStartDate: application.partnerEmploymentStartDate,
       partnerGrossSalary: application.partnerGrossSalary?.toString() ?? null,
+      selfEmployment: businessProfileForResponse(application.businessProfiles.find(profile => profile.applicantNumber === 1)),
+      businessAbn: application.businessProfiles.find(profile => profile.applicantNumber === 1)?.abn ?? null,
+      businessCommencedOn: application.businessProfiles.find(profile => profile.applicantNumber === 1)?.commencedOn?.toISOString().slice(0, 10) ?? null,
+      businessAnnualNetProfitBeforeTax: application.businessProfiles.find(profile => profile.applicantNumber === 1)?.annualNetProfitBeforeTax?.toString() ?? null,
+      businessFinancialYearEnd: application.businessProfiles.find(profile => profile.applicantNumber === 1)?.financialYearEnd ?? null,
+      partnerBusinessAbn: application.businessProfiles.find(profile => profile.applicantNumber === 2)?.abn ?? null,
+      partnerBusinessCommencedOn: application.businessProfiles.find(profile => profile.applicantNumber === 2)?.commencedOn?.toISOString().slice(0, 10) ?? null,
+      partnerBusinessAnnualNetProfitBeforeTax: application.businessProfiles.find(profile => profile.applicantNumber === 2)?.annualNetProfitBeforeTax?.toString() ?? null,
+      partnerBusinessFinancialYearEnd: application.businessProfiles.find(profile => profile.applicantNumber === 2)?.financialYearEnd ?? null,
+      partnerSelfEmployment: businessProfileForResponse(application.businessProfiles.find(profile => profile.applicantNumber === 2)),
       dependents: application.dependents,
       hasExistingLoans: application.hasExistingLoans,
       existingLoanLender: application.existingLoanLender,

@@ -1,3 +1,4 @@
+import { businessProfileForResponse } from '@/server/services/self-employment-records';
 import 'server-only';
 import { prisma } from '@/server/lib/prisma';
 import { Decimal } from 'decimal.js';
@@ -99,7 +100,7 @@ function jsonObject(value: Prisma.JsonValue): Record<string, unknown> {
 }
 
 export async function generateRecommendations({ applicationId, userId }: { applicationId: string; userId: string }) {
-  const app = await prisma.application.findFirst({ where: { id: applicationId, userId, user: { deletedAt: null } } });
+  const app = await prisma.application.findFirst({ where: { id: applicationId, userId, user: { deletedAt: null } }, include: { businessProfiles: true } });
   if (!app) throw new NotFoundError('Application not found or unauthorized');
   const propertyValue = D(app.goal === 'BUY' ? app.purchasePrice : app.propertyValue);
   const loanAmount = app.goal === 'BUY' ? propertyValue.minus(D(app.deposit)) : D(app.currentLoanBalance);
@@ -189,11 +190,17 @@ export async function generateRecommendations({ applicationId, userId }: { appli
   const top = assessed.filter(x => x.eligibility.status !== 'INELIGIBLE').slice(0, 5);
   const lenderDataAsOf = top.length ? new Date(Math.max(...top.map(x => x.candidate.lastObservedAt.getTime()))) : new Date();
   const inputSnapshot = {
-    applicationVersion: 2, goal: app.goal,
+    applicationVersion: 3, goal: app.goal,
     property: { value: propertyValue.toFixed(2), postcode: app.propertyPostcode, suburb: app.propertySuburb, state: app.propertyState, type: app.propertyType, use: targetPurpose },
     loan: { amount: loanAmount.toFixed(2), lvr: lvr.toFixed(2), repayment: targetRepayment, requestedInterestOnlyYears: requestedIOYears, requestedFixedYears },
     preferences: { rateType: targetRateType },
     applicant: { relationshipStatus: normalizeRelationshipStatus(app.relationshipStatus) ?? app.relationshipStatus, financialDependents: app.dependents },
+    employment: {
+      primary: { type: app.employmentStatus, selfEmployment: businessProfileForResponse(app.businessProfiles.find(profile => profile.applicantNumber === 1)) },
+      partner: { type: app.partnerEmploymentStatus, selfEmployment: businessProfileForResponse(app.businessProfiles.find(profile => profile.applicantNumber === 2)) },
+      // Declarations are recorded for broker review, not eligibility or pricing.
+      incomeAssessmentPerformed: false,
+    },
     promotionAnswers: jsonObject(app.promotionAnswers),
   };
 
