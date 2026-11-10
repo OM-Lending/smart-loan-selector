@@ -18,6 +18,7 @@ import { CurrencyInput } from '@/components/ui/currency-input';
 import { PercentageInput } from '@/components/ui/percentage-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddressInput } from '@/components/form/AddressInput';
+import { SelfEmploymentFields } from '@/components/form/SelfEmploymentFields';
 import { PropertyLocationInput } from '@/components/form/PropertyLocationInput';
 
 const STEP_URLS = ['your-goal', 'property-details', 'loan-preferences', 'personal-profile', 'contact-details'];
@@ -46,6 +47,8 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
   const {
     register,
+    unregister,
+    clearErrors,
     control,
     reset,
     getValues,
@@ -71,6 +74,17 @@ export function LoanWizard({ account }: { account: Account | null }) {
   });
 
   const formValues = useWatch({ control });
+
+  function chooseEmployment(status: 'FULL_TIME' | 'PART_TIME' | 'CASUAL' | 'SELF_EMPLOYED', partner = false) {
+    const key = partner ? 'partnerEmploymentStatus' : 'employmentStatus';
+    if ((getValues(key) === 'SELF_EMPLOYED') !== (status === 'SELF_EMPLOYED')) {
+      const fields = partner ? ['partnerEmploymentStartDate', 'partnerGrossSalary', 'partnerSelfEmployment'] as const : ['employmentStartDate', 'grossAnnualSalary', 'selfEmployment'] as const;
+      unregister([...fields]);
+      clearErrors([...fields]);
+    }
+    setValue(key, status, { shouldValidate: true });
+  }
+
 
   useEffect(() => {
     if (isLoaded && user?.primaryEmailAddress?.emailAddress) {
@@ -164,7 +178,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
     } else if (step === 3) {
       isStepValid = await trigger(['repaymentStructure', 'interestOnlyYears', 'ratePreference', 'fixedYears']);
     } else if (step === 4) {
-      isStepValid = await trigger(['employmentStatus', 'employmentStartDate', 'grossAnnualSalary', 'relationshipStatus', 'partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'dependents', 'hasExistingLoans', 'existingLoanLender', 'existingLoanLenderOther', 'existingLoanInterestRate', 'existingLoanBalance', 'hasCreditCard', 'creditCardLimit']);
+      isStepValid = await trigger(['employmentStatus', 'employmentStartDate', 'grossAnnualSalary', 'selfEmployment', 'relationshipStatus', 'partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'partnerSelfEmployment', 'dependents', 'hasExistingLoans', 'existingLoanLender', 'existingLoanLenderOther', 'existingLoanInterestRate', 'existingLoanBalance', 'hasCreditCard', 'creditCardLimit']);
     }
 
     if (isStepValid) {
@@ -336,7 +350,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
 
               <div>
                 <Label className="text-base font-bold mb-3 block">What kind of property are you looking to buy?</Label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
                   {QUESTIONNAIRE.propertyStatuses.map((status) => (
                     <button type="button" key={status.id} onClick={() => {
                       setValue('propertyStatus', status.id, { shouldValidate: true });
@@ -572,14 +586,15 @@ export function LoanWizard({ account }: { account: Account | null }) {
                
                <div>
                  <Label className="text-base font-bold mb-3 block">Employment Status</Label>
-                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                    {QUESTIONNAIRE.employmentStatuses.map((item) => (
-                     <button type="button" key={item.id} onClick={() => setValue('employmentStatus', item.id, { shouldValidate: true })} className={`p-3 rounded-xl border text-sm font-medium transition-all ${formValues.employmentStatus === item.id ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{item.label}</button>
+                     <button type="button" key={item.id} onClick={() => chooseEmployment(item.id)} className={`p-3 rounded-xl border text-sm font-medium transition-all ${formValues.employmentStatus === item.id ? 'border-primary bg-primary/10 text-primary ring-2 ring-primary/20' : 'border-border hover:bg-slate-50 text-slate-600'}`}>{item.label}</button>
                    ))}
                  </div>
                  {errors.employmentStatus && <p className="text-red-500 text-sm mt-1">{errors.employmentStatus.message}</p>}
                </div>
 
+               {formValues.employmentStatus === 'SELF_EMPLOYED' ? <Controller name="selfEmployment" control={control} render={({ field }) => <SelfEmploymentFields value={field.value} onChange={(key, value) => field.onChange({ ...(field.value ?? {}), [key]: value })} errors={Object.fromEntries(Object.entries(errors.selfEmployment ?? {}).filter(([, error]) => error && typeof error === 'object' && 'message' in error).map(([key, error]) => [key, String((error as { message?: string }).message ?? '')]))} />} /> : (
                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                  <div>
                    <Label className="text-base font-bold mb-2 block">Employment Start Date</Label>
@@ -595,6 +610,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
                    {errors.grossAnnualSalary && <p className="text-red-500 text-sm mt-1">{errors.grossAnnualSalary.message}</p>}
                  </div>
                </div>
+               )}
 
                <div>
                  <Label className="text-base font-bold mb-3 block">Marital Status</Label>
@@ -611,12 +627,13 @@ export function LoanWizard({ account }: { account: Account | null }) {
                    <h4 className="font-bold text-slate-800">Partner&apos;s Employment Details</h4>
                    <div>
                      <Label className="text-sm font-semibold mb-3 block text-slate-600">Partner&apos;s Employment Status</Label>
-                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                        {QUESTIONNAIRE.employmentStatuses.map((item) => (
-                         <button type="button" key={item.id} onClick={() => setValue('partnerEmploymentStatus', item.id, { shouldValidate: true })} className={`p-2 rounded-lg border text-xs font-semibold transition-all ${formValues.partnerEmploymentStatus === item.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-white text-slate-600'}`}>{item.label}</button>
+                         <button type="button" key={item.id} onClick={() => chooseEmployment(item.id, true)} className={`p-2 rounded-lg border text-xs font-semibold transition-all ${formValues.partnerEmploymentStatus === item.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-white text-slate-600'}`}>{item.label}</button>
                        ))}
                      </div>
                    </div>
+                   {formValues.partnerEmploymentStatus === 'SELF_EMPLOYED' ? <Controller name="partnerSelfEmployment" control={control} render={({ field }) => <SelfEmploymentFields label="Partner business" value={field.value} onChange={(key, value) => field.onChange({ ...(field.value ?? {}), [key]: value })} errors={Object.fromEntries(Object.entries(errors.partnerSelfEmployment ?? {}).filter(([, error]) => error && typeof error === 'object' && 'message' in error).map(([key, error]) => [key, String((error as { message?: string }).message ?? '')]))} />} /> : (
                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                      <div>
                        <Label className="text-sm font-semibold mb-2 block text-slate-600">Start Date</Label>
@@ -631,6 +648,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
                        </div>
                      </div>
                    </div>
+                   )}
                  </div>
                )}
 

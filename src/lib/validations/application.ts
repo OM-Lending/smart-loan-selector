@@ -1,3 +1,4 @@
+import { SelfEmploymentSchema, SelfEmploymentDraftSchema } from '@/lib/validations/self-employment';
 import { z } from 'zod';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
 import { AddressSelectionSchema, addressInputError } from '@/lib/validations/address';
@@ -14,7 +15,7 @@ const strictSalary = z.preprocess((val) => {
   if (val === '' || val === null || val === undefined) return undefined;
   if (typeof val === 'string' && /^0[0-9]+/.test(val)) return NaN;
   return Number(val);
-}, z.number({ error: "Invalid salary format" }).min(0, "Salary cannot be negative"));
+}, z.number({ error: "Invalid salary format" }).min(0, "Salary cannot be negative").optional());
 
 const dateMMSchema = z.string()
   .regex(/^(0[1-9]|1[0-2])\/\d{4}$/, 'Format must be MM/YYYY')
@@ -70,13 +71,15 @@ const ApplicationFields = z.object({
   ratePreference: z.enum(['VARIABLE', 'FIXED'], { error: 'Choose a rate preference' }),
   fixedYears: optionalChoice(['1', '2', '3'] as const),
   
-  employmentStatus: z.enum(['FULL_TIME', 'PART_TIME', 'CASUAL'], { error: 'Choose a valid employment status' }),
+  employmentStatus: z.enum(['FULL_TIME', 'PART_TIME', 'CASUAL', 'SELF_EMPLOYED'], { error: 'Choose a valid employment status' }),
   employmentStartDate: dateMMSchema,
   grossAnnualSalary: strictSalary,
+  selfEmployment: SelfEmploymentSchema.optional(),
   relationshipStatus: z.enum(RELATIONSHIP_STATUSES, { error: 'Choose a valid marital status' }),
-  partnerEmploymentStatus: optionalChoice(['FULL_TIME', 'PART_TIME', 'CASUAL'] as const),
+  partnerEmploymentStatus: optionalChoice(['FULL_TIME', 'PART_TIME', 'CASUAL', 'SELF_EMPLOYED'] as const),
   partnerEmploymentStartDate: dateMMSchema,
   partnerGrossSalary: emptyToUndefinedNumber,
+  partnerSelfEmployment: SelfEmploymentSchema.optional(),
   dependents: z.coerce.number().int().min(0).safe().default(0),
   
   hasExistingLoans: z.boolean().nullable().optional(),
@@ -102,6 +105,7 @@ export type ContactDetails = z.output<typeof ContactDetailsSchema>;
 export const QuestionnaireDraftSchema = ApplicationFields.partial().extend({
   firstName: z.string().optional(), lastName: z.string().optional(),
   email: z.string().optional(), phone: z.string().optional(),
+  selfEmployment: SelfEmploymentDraftSchema.optional(), partnerSelfEmployment: SelfEmploymentDraftSchema.optional(),
 });
 
 /** Discard answers belonging to options the customer no longer selected. */
@@ -120,7 +124,11 @@ export function normalizeApplicationAnswers<T extends object>(input: T): T {
   if (data.hasExistingLoans !== true) clear(['existingLoanLender', 'existingLoanLenderOther', 'existingLoanInterestRate', 'existingLoanBalance']);
   if (data.existingLoanLender !== 'Other') clear(['existingLoanLenderOther']);
   if (data.hasCreditCard !== true) clear(['creditCardLimit']);
-  if (data.relationshipStatus !== 'MARRIED' && data.relationshipStatus !== 'DE_FACTO') clear(['partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary']);
+  if (data.relationshipStatus !== 'MARRIED' && data.relationshipStatus !== 'DE_FACTO') clear(['partnerEmploymentStatus', 'partnerEmploymentStartDate', 'partnerGrossSalary', 'partnerSelfEmployment']);
+  if (data.employmentStatus === 'SELF_EMPLOYED') clear(['employmentStartDate', 'grossAnnualSalary']);
+  else clear(['selfEmployment']);
+  if (data.partnerEmploymentStatus === 'SELF_EMPLOYED') clear(['partnerEmploymentStartDate', 'partnerGrossSalary']);
+  else clear(['partnerSelfEmployment']);
   if (data.repaymentStructure !== 'INTEREST_ONLY') clear(['interestOnlyYears']);
   if (data.ratePreference !== 'FIXED') clear(['fixedYears']);
   return data as T;
@@ -128,6 +136,7 @@ export function normalizeApplicationAnswers<T extends object>(input: T): T {
 
 type LoanDetails = z.output<typeof ApplicationFields>;
 function validateLoanDetails(data: LoanDetails, context: z.RefinementCtx) {
+  if (data.employmentStatus !== 'SELF_EMPLOYED' && data.grossAnnualSalary === undefined) context.addIssue({ code: 'custom', path: ['grossAnnualSalary'], message: 'Enter your gross annual salary' });
   if (!data.propertyUse) context.addIssue({ code: 'custom', path: ['propertyUse'], message: 'Choose how the property will be used' });
   if (data.goal === 'BUY') {
     const locationError = propertyLocationInputError({ postcode: data.propertyPostcode, suburb: data.propertySuburb, state: data.propertyState }, data.propertyLocationSelection);

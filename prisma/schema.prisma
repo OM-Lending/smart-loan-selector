@@ -565,7 +565,7 @@ model Application {
 
   employmentStatus           EmploymentStatus   @map("employment_status")
   employmentStartDate        String?            @map("employment_start_date")
-  grossAnnualSalary          Decimal            @map("gross_annual_salary") @db.Decimal(12, 2)
+  grossAnnualSalary          Decimal?           @map("gross_annual_salary") @db.Decimal(12, 2)
   relationshipStatus         RelationshipStatus @map("relationship_status")
   partnerEmploymentStatus    EmploymentStatus?  @map("partner_employment_status")
   partnerEmploymentStartDate String?            @map("partner_employment_start_date")
@@ -593,6 +593,8 @@ model Application {
   continuation       ApplicationContinuation?
   brokerEnquiries    BrokerEnquiry[]
   notificationEvents NotificationEvent[]
+
+  businessProfiles ApplicationBusinessProfile[]
 
   @@map("applications")
 }
@@ -678,16 +680,51 @@ model ApplicationContinuation {
   submittedAt     DateTime?                     @map("submitted_at")
   updatedAt       DateTime                      @updatedAt @map("updated_at")
 
-  application   Application              @relation(fields: [applicationId], references: [id], onDelete: Restrict)
-  selectedQuote ApplicationQuote         @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
-  documents     ApplicationDocument[]
-  applicants    ContinuationApplicant[]
-  employments   ContinuationEmployment[]
-  assets        ContinuationAssets?
-  properties    ContinuationProperty[]
+  application      Application                   @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  selectedQuote    ApplicationQuote              @relation("ContinuationQuote", fields: [selectedQuoteId], references: [id], onDelete: Restrict)
+  documents        ApplicationDocument[]
+  applicants       ContinuationApplicant[]
+  employments      ContinuationEmployment[]
+  assets           ContinuationAssets?
+  properties       ContinuationProperty[]
+  businessProfiles ContinuationBusinessProfile[]
 
   @@index([selectedQuoteId])
   @@map("application_continuations")
+}
+
+// Questionnaire declarations and continuation updates are separate records;
+// later edits cannot rewrite the input that generated an earlier comparison.
+model ApplicationBusinessProfile {
+  id                       String      @id @default(uuid()) @db.Uuid
+  applicationId            String      @map("application_id") @db.Uuid
+  applicantNumber          Int         @map("applicant_number") @db.SmallInt
+  abn                      String?     @db.VarChar(11)
+  commencedOn              DateTime?   @map("commenced_on") @db.Date
+  annualNetProfitBeforeTax Decimal?    @map("annual_net_profit_before_tax") @db.Decimal(18, 2)
+  financialYearEnd         Int?        @map("financial_year_end") @db.SmallInt
+  createdAt                DateTime    @default(now()) @map("created_at")
+  updatedAt                DateTime    @updatedAt @map("updated_at")
+  application              Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, applicantNumber])
+  @@map("application_business_profiles")
+}
+
+model ContinuationBusinessProfile {
+  id                       String                  @id @default(uuid()) @db.Uuid
+  continuationId           String                  @map("continuation_id") @db.Uuid
+  applicantNumber          Int                     @map("applicant_number") @db.SmallInt
+  abn                      String?                 @db.VarChar(11)
+  commencedOn              DateTime?               @map("commenced_on") @db.Date
+  annualNetProfitBeforeTax Decimal?                @map("annual_net_profit_before_tax") @db.Decimal(18, 2)
+  financialYearEnd         Int?                    @map("financial_year_end") @db.SmallInt
+  createdAt                DateTime                @default(now()) @map("created_at")
+  updatedAt                DateTime                @updatedAt @map("updated_at")
+  continuation             ApplicationContinuation @relation(fields: [continuationId], references: [id], onDelete: Cascade)
+
+  @@unique([continuationId, applicantNumber])
+  @@map("continuation_business_profiles")
 }
 
 model ApplicationDocument {
