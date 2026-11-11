@@ -1,3 +1,5 @@
+import { LegalConsentError, readConsentPayload, requireConsent, hasCurrentConsent, recordLegalConsents } from '@/server/services/legal/consent.service';
+import { isSameOriginRequest } from '@/server/lib/request-origin';
 import { businessProfileData } from '@/server/services/self-employment-records';
 import { after, NextResponse } from 'next/server';
 import { enqueueAdminNotification, tryAdminNotifications } from '@/server/services/notifications/notification.service';
@@ -17,6 +19,7 @@ import {
 
 export async function POST(request: Request) {
   const requestId = randomUUID();
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
   try {
     const identity = await getAuthenticatedProfile();
     if (!identity) {
@@ -76,6 +79,10 @@ export async function POST(request: Request) {
         diagnostic: { code: 'VERIFIED_EMAIL_MISMATCH', stage: 'email_verification', requestId },
       }, { status: 403 });
     }
+    const consents = readConsentPayload(validData.consents);
+    requireConsent(consents, 'quoteAccepted');
+    const termsAlreadyAccepted = await hasCurrentConsent(identity.clerkUserId, 'TERMS_ACCEPTANCE');
+    if (!termsAlreadyAccepted) requireConsent(consents, 'termsAccepted');
     const applicationData = validData;
 
     // Get the application ID
@@ -139,6 +146,10 @@ export async function POST(request: Request) {
         }
       });
       
+      await recordLegalConsents(tx, [
+        ...(!termsAlreadyAccepted ? [{ purpose: 'TERMS_ACCEPTANCE' as const, flag: consents.quoteTermsAccepted ? 'quoteTermsAccepted' as const : 'termsAccepted' as const, source: identity.profile ? 'QUESTIONNAIRE' as const : 'REGISTRATION' as const, profileId: profile.id, clerkUserId: identity.clerkUserId, eventKey: `terms:${identity.clerkUserId}` }] : []),
+        { purpose: 'QUOTE_COLLECTION', flag: consents.quoteTermsAccepted ? 'quoteTermsAccepted' : 'quoteAccepted', source: 'QUESTIONNAIRE', profileId: profile.id, clerkUserId: identity.clerkUserId, applicationId: application.id, eventKey: `quote:${application.id}` },
+      ]);
       const notification = await enqueueAdminNotification(tx, { key: `application.created:${application.id}`, type: 'APPLICATION_CREATED', applicationId: application.id });
       return { applicationId: application.id, userId: profile.id, notificationEventId: notification.id };
     }, { timeout: 15_000 });
@@ -171,6 +182,7 @@ export async function POST(request: Request) {
     }, { status: 201 });
 
   } catch (error: unknown) {
+    if (error instanceof LegalConsentError) return NextResponse.json({ error: error.message, code: error.code }, { status: 428 });
     console.error(`[Create API] Failed to process application (${requestId}):`, error);
 
     if (error instanceof ApplicationProfileError) {

@@ -7,6 +7,8 @@ import { CheckCircle2, LoaderCircle, PhoneCall, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { ConsentCheckbox } from '@/components/legal/ConsentCheckbox';
+import { LEGAL_VERSION } from '@/lib/legal/consent';
 import { BrokerEnquiryForm } from '@/lib/validations/broker-enquiry';
 
 // getRandomValues also works on local HTTP/LAN origins where randomUUID may not.
@@ -26,6 +28,7 @@ export function BrokerEnquiryDialog() {
   const [errors, setErrors] = useState<Record<string, string[] | undefined>>({});
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [contactAccepted, setContactAccepted] = useState(false);
   const [success, setSuccess] = useState(false);
   const inFlight = useRef(false);
   const edited = useRef(false);
@@ -39,7 +42,7 @@ export function BrokerEnquiryDialog() {
     if (!next) return;
     const version = generation.current;
     requestId.current = submissionId(); edited.current = false;
-    setSuccess(false); setError(''); setErrors({});
+    setContactAccepted(false); setSuccess(false); setError(''); setErrors({});
     const metadataName = typeof user?.unsafeMetadata.full_name === 'string' ? user.unsafeMetadata.full_name : '';
     setValues({ ...empty, fullName: user?.fullName ?? metadataName, email: user?.primaryEmailAddress?.emailAddress ?? '', phone: user?.primaryPhoneNumber?.phoneNumber ?? '' });
     if (user) void fetch('/api/account/contact', { cache: 'no-store' }).then(async response => {
@@ -58,11 +61,12 @@ export function BrokerEnquiryDialog() {
   const send = async (event: React.FormEvent) => {
     event.preventDefault();
     if (inFlight.current) return;
+    if (!contactAccepted) { setError('Please review the notices and confirm that we may contact you.'); return; }
     const parsed = BrokerEnquiryForm.safeParse(values);
     if (!parsed.success) { setErrors(parsed.error.flatten().fieldErrors); return; }
     inFlight.current = true; setSaving(true); setError('');
     try {
-      const response = await fetch('/api/broker-enquiries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...parsed.data, website: values.website, requestId: requestId.current }) });
+      const response = await fetch('/api/broker-enquiries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...parsed.data, website: values.website, requestId: requestId.current, consents: { version: LEGAL_VERSION, brokerContactAccepted: contactAccepted } }) });
       const body = await response.json() as { success?: boolean; error?: string; details?: Record<string, string[]> };
       if (!response.ok || !body.success) { if (body.details) setErrors(body.details); throw new Error(body.error || 'Could not send your message. Please retry.'); }
       setSuccess(true);
@@ -81,6 +85,7 @@ export function BrokerEnquiryDialog() {
           {(['fullName', 'email', 'phone'] as const).map(key => <div key={key}><Label htmlFor={`enquiry-${key}`} className="mb-2 block">{key === 'fullName' ? 'Full name' : key === 'email' ? 'Email address' : 'Phone number'}</Label><Input id={`enquiry-${key}`} type={key === 'email' ? 'email' : key === 'phone' ? 'tel' : 'text'} autoComplete={key === 'fullName' ? 'name' : key === 'email' ? 'email' : 'tel'} maxLength={key === 'fullName' ? 120 : key === 'email' ? 254 : 24} value={values[key]} onChange={event => update(key, event.target.value)} disabled={saving} aria-required="true" aria-invalid={Boolean(errors[key])} aria-describedby={errors[key] ? `enquiry-${key}-error` : undefined} />{errors[key] && <p id={`enquiry-${key}-error`} className="mt-1 text-sm text-red-700">{errors[key]?.[0]}</p>}</div>)}
           <div><Label htmlFor="enquiry-message" className="mb-2 block">Message</Label><textarea id="enquiry-message" rows={4} maxLength={4000} value={values.message} onChange={event => update('message', event.target.value)} disabled={saving} aria-required="true" aria-invalid={Boolean(errors.message)} aria-describedby={errors.message ? 'enquiry-message-error' : undefined} className="w-full rounded-xl border border-input p-3 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:opacity-50" placeholder="How can we help?" />{errors.message && <p id="enquiry-message-error" className="mt-1 text-sm text-red-700">{errors.message[0]}</p>}</div>
           <div aria-hidden="true" className="hidden"><label htmlFor="enquiry-website">Website</label><input id="enquiry-website" tabIndex={-1} autoComplete="off" value={values.website} onChange={event => update('website', event.target.value)} /></div>
+          <ConsentCheckbox purpose="brokerContactAccepted" checked={contactAccepted} onChange={value => { setContactAccepted(value); setError(''); }} disabled={saving}/>
           {error && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>}
           <Button type="submit" disabled={saving} className="w-full gap-2">{saving && <LoaderCircle className="h-4 w-4 animate-spin" />}{saving ? 'Sending message…' : 'Send message'}</Button>
         </form>}

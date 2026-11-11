@@ -1,3 +1,4 @@
+import { LegalConsentError, readConsentPayload, requireConsent, recordLegalConsents } from '@/server/services/legal/consent.service';
 import { after, NextResponse } from 'next/server';
 import { createHmac } from 'node:crypto';
 import { Prisma } from '@prisma/client';
@@ -20,8 +21,10 @@ export async function POST(request: Request) {
     if (raw.length > 12_000) return NextResponse.json({ error: 'Your message is too long.' }, { status: 413 });
     const parsed = CreateBrokerEnquiry.safeParse(JSON.parse(raw));
     if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message, details: parsed.error.flatten().fieldErrors }, { status: 400 });
-    const { requestId, website, ...contact } = parsed.data;
+    const { requestId, website, consents: consentInput, ...contact } = parsed.data;
     if (website) return NextResponse.json({ error: 'Could not submit your message.' }, { status: 400 });
+    const consents = readConsentPayload(consentInput);
+    requireConsent(consents, 'brokerContactAccepted');
     const secret = process.env.BROKER_ENQUIRY_RATE_LIMIT_SECRET ?? process.env.CLERK_SECRET_KEY;
     if (!secret) return NextResponse.json({ error: 'Contact requests are temporarily unavailable.' }, { status: 503 });
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown';
@@ -34,6 +37,7 @@ export async function POST(request: Request) {
       const previous = await tx.brokerEnquiry.findUnique({ where: { requestId } });
       if (previous) {
         if (previous.email !== contact.email || previous.fullName !== contact.fullName || previous.phone !== contact.phone || previous.message !== contact.message) throw new EnquiryRequestError('This submission has changed. Close the form and try again.', 409);
+        await recordLegalConsents(tx, [{ purpose: 'BROKER_CONTACT', flag: 'brokerContactAccepted', source: 'BROKER_ENQUIRY', profileId: identity?.profile?.id, clerkUserId: identity?.clerkUserId, enquiryId: previous.id, eventKey: `enquiry:${previous.id}` }]);
         return previous;
       }
       const since = new Date(Date.now() - 15 * 60_000);
@@ -46,6 +50,7 @@ export async function POST(request: Request) {
         ...contact, requestId, requestIpHash: ipHash, userId: identity?.profile?.id,
         activities: { create: { type: 'CREATED', toStatus: 'NEW' } },
       } });
+      await recordLegalConsents(tx, [{ purpose: 'BROKER_CONTACT', flag: 'brokerContactAccepted', source: 'BROKER_ENQUIRY', profileId: identity?.profile?.id, clerkUserId: identity?.clerkUserId, enquiryId: enquiry.id, eventKey: `enquiry:${enquiry.id}` }]);
       await enqueueAdminNotification(tx, { key: `enquiry.created:${enquiry.id}`, type: 'BROKER_ENQUIRY_CREATED', enquiryId: enquiry.id });
       return enquiry;
     }, { maxWait: 5000, timeout: 15_000 });
@@ -53,6 +58,7 @@ export async function POST(request: Request) {
     if (event) after(() => tryAdminNotifications(event.id));
     return NextResponse.json({ success: true }, { status: 201, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (error instanceof LegalConsentError) return NextResponse.json({ error: error.message, code: error.code }, { status: 428 });
     if (error instanceof SyntaxError) return NextResponse.json({ error: 'Invalid message format.' }, { status: 400 });
     if (error instanceof EnquiryRequestError) return NextResponse.json({ error: error.message }, { status: error.status, ...(error.status === 429 ? { headers: { 'Retry-After': '900' } } : {}) });
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return NextResponse.json({ error: 'Your request is already being processed. Please retry in a moment.' }, { status: 409 });

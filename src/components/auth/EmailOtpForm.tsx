@@ -9,11 +9,12 @@ type EmailOtpFormProps = {
   initialEmail?: string;
   lockEmail?: boolean;
   createUser: boolean;
+  disabled?: boolean;
   userMetadata?: Record<string, string>;
   onVerified: (email: string) => Promise<void> | void;
 };
 
-export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser, userMetadata, onVerified }: EmailOtpFormProps) {
+export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser, userMetadata, onVerified, disabled = false }: EmailOtpFormProps) {
   const { signUp, fetchStatus: signUpFetchStatus } = useSignUp();
   const { signIn, fetchStatus: signInFetchStatus } = useSignIn();
   const signUpLoaded = signUpFetchStatus === 'idle';
@@ -35,6 +36,7 @@ export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser,
   }, [countdown]);
 
   const sendCode = async () => {
+    if (disabled) return;
     const normalizedEmail = email.trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       setError('Enter a valid email address.');
@@ -75,6 +77,7 @@ export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser,
   };
 
   const verifyCode = async () => {
+    if (disabled) return;
     if (code.trim().length !== 6) return;
     setBusy(true);
     setError('');
@@ -112,25 +115,25 @@ export function EmailOtpForm({ initialEmail = '', lockEmail = false, createUser,
   return <div className="space-y-4">
     <div>
       <label htmlFor="auth-email" className="mb-2 block text-sm font-semibold text-slate-700">Email address</label>
-      <Input id="auth-email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} readOnly={lockEmail || (codeSent && !verified)} disabled={busy || verified} placeholder="you@example.com" />
+      <Input id="auth-email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} readOnly={lockEmail || (codeSent && !verified)} disabled={disabled || busy || verified} placeholder="you@example.com" />
     </div>
     {createUser && <div id="clerk-captcha" data-cl-theme="light" />}
-    {!codeSent ? <Button type="button" className="w-full" onClick={sendCode} disabled={busy || (createUser ? !signUpLoaded : !signInLoaded)}>
+    {!codeSent ? <Button type="button" className="w-full" onClick={sendCode} disabled={disabled || busy || (createUser ? !signUpLoaded : !signInLoaded)}>
       {busy ? 'Sending…' : createUser ? 'Send email verification code' : 'Send login code'}
     </Button> : <>
       <div>
         <label htmlFor="email-otp" className="mb-2 block text-sm font-semibold text-slate-700">6-digit email code</label>
-        <Input id="email-otp" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} disabled={busy || verified} placeholder="000000" className="text-center font-mono text-xl tracking-[0.4em]" />
+        <Input id="email-otp" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} disabled={disabled || busy || verified} placeholder="000000" className="text-center font-mono text-xl tracking-[0.4em]" />
       </div>
-      <Button type="button" className="w-full" onClick={verifyCode} disabled={busy || verified || code.length !== 6}>
+      <Button type="button" className="w-full" onClick={verifyCode} disabled={disabled || busy || verified || code.length !== 6}>
         {busy ? 'Verifying…' : verified ? 'Email verified' : createUser ? 'Verify email and continue' : 'Verify and sign in'}
       </Button>
       {!verified && <div className="text-center text-sm">
-        {countdown > 0 ? <p className="text-slate-500">Resend code in {countdown}s</p> : <button type="button" className="font-semibold text-primary hover:underline" onClick={sendCode} disabled={busy}>Resend code</button>}
+        {countdown > 0 ? <p className="text-slate-500">Resend code in {countdown}s</p> : <button type="button" className="font-semibold text-primary hover:underline" onClick={sendCode} disabled={disabled || busy}>Resend code</button>}
         {!lockEmail && <button type="button" className="ml-4 text-slate-500 hover:underline" onClick={() => { setCodeSent(false); setCode(''); setNotice(''); setError(''); }}>Change email</button>}
       </div>}
     </>}
-    {restartRequired && <Button type="button" variant="outline" className="w-full" disabled={busy} onClick={async () => {
+    {restartRequired && <Button type="button" variant="outline" className="w-full" disabled={disabled || busy} onClick={async () => {
       setBusy(true);
       const { error: resetError } = await signUp.reset();
       setBusy(false);

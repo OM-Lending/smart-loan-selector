@@ -1,3 +1,4 @@
+import { ConsentPayloadSchema } from '@/lib/legal/consent';
 import { SelfEmploymentSchema, SelfEmploymentDraftSchema } from '@/lib/validations/self-employment';
 import { z } from 'zod';
 import { QUESTIONNAIRE } from '@/config/questionnaire';
@@ -38,6 +39,7 @@ const optionalLoanDecimal = (label: string, integerDigits: number, maximum: numb
   .optional());
 
 const ApplicationFields = z.object({
+  consents: ConsentPayloadSchema.optional(),
   goal: z.enum(['BUY', 'REFINANCE'], { error: 'Loan goal is required' }),
   buySituation: optionalChoice(['EXPLORING', 'WITHIN_3_TO_6_MONTHS', 'MADE_OFFER', 'EXCHANGED'] as const),
   isFirstHomeBuyer: z.boolean().nullable().optional(),
@@ -102,7 +104,7 @@ export const ContactDetailsSchema = z.object({
 export type ContactDetails = z.output<typeof ContactDetailsSchema>;
 
 // In-progress answers need not satisfy the final questionnaire requirements.
-export const QuestionnaireDraftSchema = ApplicationFields.partial().extend({
+export const QuestionnaireDraftSchema = ApplicationFields.omit({ consents: true }).partial().extend({
   firstName: z.string().optional(), lastName: z.string().optional(),
   email: z.string().optional(), phone: z.string().optional(),
   selfEmployment: SelfEmploymentDraftSchema.optional(), partnerSelfEmployment: SelfEmploymentDraftSchema.optional(),

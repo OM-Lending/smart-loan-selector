@@ -1,3 +1,5 @@
+import { hasCurrentConsent } from '@/server/services/legal/consent.service';
+import { isSameOriginRequest } from '@/server/lib/request-origin';
 import { applicationDocumentCategory } from '@/lib/application-documents';
 import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
@@ -13,10 +15,18 @@ const TYPES = {
 } as const;
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
   try {
     const identity = await getAuthenticatedProfile();
     if (!identity?.profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const { id } = await context.params;
+    const application = await prisma.application.findFirst({ where: { id, userId: identity.profile.id }, select: { id: true } });
+    if (!application) return NextResponse.json({ error: 'Application not found.' }, { status: 404 });
+    const [collectionAccepted, termsAccepted] = await Promise.all([
+      hasCurrentConsent(identity.clerkUserId, 'APPLICATION_COLLECTION', id),
+      hasCurrentConsent(identity.clerkUserId, 'TERMS_ACCEPTANCE'),
+    ]);
+    if (!collectionAccepted || !termsAccepted) return NextResponse.json({ error: 'Review and confirm the current Application Collection Notice before uploading documents.', code: 'LEGAL_CONSENT_REQUIRED' }, { status: 428 });
     const form = await request.formData();
     const file = form.get('file');
     const category = form.get('category');
