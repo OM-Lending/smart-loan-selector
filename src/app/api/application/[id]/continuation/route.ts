@@ -1,3 +1,6 @@
+import { LegalConsentError, readConsentPayload, requireConsent, hasCurrentConsent, recordLegalConsents } from '@/server/services/legal/consent.service';
+import { ConsentPayloadSchema, LEGAL_VERSION } from '@/lib/legal/consent';
+import { isSameOriginRequest } from '@/server/lib/request-origin';
 import { businessProfileForResponse } from '@/server/services/self-employment-records';
 import { continuationRecordsInclude, continuationDetailsForResponse, saveContinuationRecords } from '@/server/services/continuation-records';
 import { editableContinuationDetails, RESIDENCY_OPTIONS } from '@/lib/continuation-form';
@@ -13,6 +16,7 @@ import { normalizeApplicantMaritalStatuses, normalizeRelationshipStatus, RELATIO
 
 const Params = z.object({ id: z.string().uuid() });
 const SaveBody = z.object({
+  consents: ConsentPayloadSchema.optional(),
   quoteId: z.string().uuid().optional(),
   details: z.record(z.string(), z.unknown()),
   submit: z.boolean().optional().default(false),
@@ -33,7 +37,12 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     });
     if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 });
     const continuation = application.continuation;
+    const [collectionAccepted, termsAccepted] = await Promise.all([
+      hasCurrentConsent(identity.clerkUserId, 'APPLICATION_COLLECTION', id),
+      hasCurrentConsent(identity.clerkUserId, 'TERMS_ACCEPTANCE'),
+    ]);
     return NextResponse.json({
+      legal: { version: LEGAL_VERSION, collectionAccepted, termsAccepted },
       applicationId: application.id,
       goal: application.goal,
       currentStage: application.currentStage,
@@ -70,6 +79,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function PUT(request: Request, context: { params: Promise<{ id: string }> }) {
+  if (!isSameOriginRequest(request)) return NextResponse.json({ error: 'Invalid request origin.' }, { status: 403 });
   try {
     const identity = await getAuthenticatedProfile();
     if (!identity?.profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -87,6 +97,14 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
     if (existing?.status === 'SUBMITTED' && existing.reviewStatus !== 'NEEDS_INFORMATION') {
       return NextResponse.json({ error: 'This application has already been submitted' }, { status: 409 });
     }
+    const consents = readConsentPayload(parsed.data.consents);
+    const [collectionAlreadyAccepted, termsAlreadyAccepted] = await Promise.all([
+      hasCurrentConsent(identity.clerkUserId, 'APPLICATION_COLLECTION', id),
+      hasCurrentConsent(identity.clerkUserId, 'TERMS_ACCEPTANCE'),
+    ]);
+    if (!collectionAlreadyAccepted) requireConsent(consents, 'collectionAccepted');
+    if (!termsAlreadyAccepted) requireConsent(consents, 'termsAccepted');
+    if (submit) requireConsent(consents, 'submissionConfirmed');
     // Drafts may omit an answer, but any chosen status must be a current option.
     for (const key of ['applicant', 'applicant2']) {
       const applicant = details[key];
@@ -147,6 +165,11 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
             include: { selectedQuote: true },
           });
 
+      await recordLegalConsents(tx, [
+        ...(!termsAlreadyAccepted ? [{ purpose: 'TERMS_ACCEPTANCE' as const, flag: 'termsAccepted' as const, source: 'CONTINUATION' as const, profileId, clerkUserId: identity.clerkUserId, eventKey: `terms:${identity.clerkUserId}` }] : []),
+        ...(!collectionAlreadyAccepted ? [{ purpose: 'APPLICATION_COLLECTION' as const, flag: 'collectionAccepted' as const, source: 'CONTINUATION' as const, profileId, clerkUserId: identity.clerkUserId, applicationId: id, eventKey: `collection:${id}` }] : []),
+        ...(submit ? [{ purpose: 'APPLICATION_SUBMISSION' as const, flag: 'submissionConfirmed' as const, source: 'FINAL_SUBMISSION' as const, profileId, clerkUserId: identity.clerkUserId, applicationId: id, eventKey: `submission:${id}:${continuation.submittedAt!.toISOString()}` }] : []),
+      ]);
       await saveContinuationRecords(tx, continuation.id, details);
 
       await tx.application.updateMany({
@@ -175,6 +198,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 
     return NextResponse.json({ success: true, status: continuation.status, reviewStatus: continuation.reviewStatus, continuationId: continuation.id, selectedQuote: responseQuote(continuation.selectedQuote) });
   } catch (error) {
+    if (error instanceof LegalConsentError) return NextResponse.json({ error: error.message, code: error.code }, { status: 428 });
     if (error instanceof z.ZodError) return NextResponse.json({ error: 'Invalid application id' }, { status: 400 });
     console.error('Failed to save continuation draft:', error);
     return NextResponse.json({ error: 'Could not save application details' }, { status: 500 });

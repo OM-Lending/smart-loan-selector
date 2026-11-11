@@ -1,3 +1,6 @@
+import Link from 'next/link';
+import { LEGAL_ENTITY, LEGAL_ABN } from '@/lib/legal/consent';
+
 export default function Footer() {
   const currentYear = new Date().getFullYear();
 
@@ -12,13 +15,11 @@ export default function Footer() {
 
         <div className="space-y-4 text-slate-500">
           <p className="font-semibold text-slate-700">
-            © {currentYear} Smart Loan Selector Australia Pty Ltd | ABN 123 456 789 | Australian Credit Licence 000000
+            © {currentYear} {LEGAL_ENTITY} · ABN {LEGAL_ABN} · All rights reserved.
           </p>
-          <p>
-            Smart Loan Selector Financial Group Pty Ltd is the holding company of the Smart Loan Selector comparison platform, owned by institutional investors, technology founders, and Australian credit partners.
-          </p>
+          <nav aria-label="Legal information" className="flex flex-wrap gap-5 text-sm font-semibold text-primary"><Link href="/terms" className="hover:underline">Terms of Use</Link><Link href="/privacy" className="hover:underline">Privacy Policy</Link><Link href="/collection-notice" className="hover:underline">Collection Notice</Link></nav>
           <p className="text-[11px] text-slate-400 max-w-4xl">
-            Disclaimer: Information provided on this platform is general in nature and does not constitute financial or credit advice. Interest rates, fees, and product features sourced via Open Banking (CDR API) are updated daily. Please consider your own financial circumstances before making any decisions.
+            Comparisons are preliminary estimates, not loan approval or a complete assessment of your borrowing capacity. Product information is sourced from public bank APIs and may change. A broker and the lender must verify your circumstances, eligibility and the terms available to you.
           </p>
         </div>
       </div>

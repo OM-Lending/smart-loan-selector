@@ -1,3 +1,4 @@
+import { ConsentPayloadSchema } from '@/lib/legal/consent';
 import { z } from 'zod';
 
 export const ENQUIRY_STATUSES = ['NEW', 'CONTACTING', 'CONVERTED', 'RESOLVED', 'CLOSED'] as const;
@@ -16,6 +17,7 @@ export const BrokerEnquiryForm = z.object({
   message: z.string().trim().min(10, 'Please enter at least 10 characters.').max(4000),
 });
 export const CreateBrokerEnquiry = BrokerEnquiryForm.extend({
+  consents: ConsentPayloadSchema,
   requestId: z.string().uuid(), website: z.string().max(200).optional(),
 });
 export const UpdateBrokerEnquiry = z.object({

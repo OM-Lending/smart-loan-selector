@@ -19,6 +19,9 @@ import { PercentageInput } from '@/components/ui/percentage-input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AddressInput } from '@/components/form/AddressInput';
 import { SelfEmploymentFields } from '@/components/form/SelfEmploymentFields';
+import { ConsentCheckbox } from '@/components/legal/ConsentCheckbox';
+import { CollectionNotice } from '@/components/legal/CollectionNotice';
+import { LEGAL_VERSION } from '@/lib/legal/consent';
 import { PropertyLocationInput } from '@/components/form/PropertyLocationInput';
 
 const STEP_URLS = ['your-goal', 'property-details', 'loan-preferences', 'personal-profile', 'contact-details'];
@@ -34,6 +37,14 @@ export function LoanWizard({ account }: { account: Account | null }) {
   
   const [requestedStep, setStep] = useState(initialStep);
   const [needsContactDetails, setNeedsContactDetails] = useState(false);
+  const consentActor = user?.id ?? 'guest';
+  const [confirmations, setConfirmations] = useState({ actor: 'guest', quote: false, terms: false, combined: false });
+  const [acceptedTermsStatus, setAcceptedTermsStatus] = useState<{ actor: string; accepted: boolean } | null>(null);
+  const quoteAccepted = confirmations.actor === consentActor && confirmations.quote;
+  const termsAccepted = confirmations.actor === consentActor && confirmations.terms;
+  const termsAlreadyAccepted = acceptedTermsStatus?.actor === consentActor && acceptedTermsStatus.accepted;
+  const setQuoteAccepted = (checked: boolean) => setConfirmations({ actor: consentActor, quote: checked, terms: !termsAlreadyAccepted && checked, combined: !termsAlreadyAccepted && checked });
+  const [legalError, setLegalError] = useState('');
   const [saveError, setSaveError] = useState('');
   const [sessionExpired, setSessionExpired] = useState(false);
   const saveInFlight = useRef(false);
@@ -74,6 +85,15 @@ export function LoanWizard({ account }: { account: Account | null }) {
   });
 
   const formValues = useWatch({ control });
+  useEffect(() => {
+    let active = true;
+    if (consentActor !== 'guest') void fetch('/api/legal/status', { cache: 'no-store' }).then(async response => {
+      if (!response.ok) return;
+      const status = await response.json() as { termsAccepted?: boolean };
+      if (active) setAcceptedTermsStatus({ actor: consentActor, accepted: status.termsAccepted === true });
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [consentActor]);
 
   function chooseEmployment(status: 'FULL_TIME' | 'PART_TIME' | 'CASUAL' | 'SELF_EMPLOYED', partner = false) {
     const key = partner ? 'partnerEmploymentStatus' : 'employmentStatus';
@@ -189,6 +209,12 @@ export function LoanWizard({ account }: { account: Account | null }) {
   const onSubmit = async (data: ApplicationPayload) => {
     if (saveInFlight.current) return;
     setSaveError('');
+    setLegalError('');
+    if (!quoteAccepted || (user && !termsAlreadyAccepted && !termsAccepted)) {
+      setLegalError('Please review the notices and select the required confirmations.'); return;
+    }
+    const consents = { version: LEGAL_VERSION, quoteAccepted, termsAccepted, quoteTermsAccepted: confirmations.actor === consentActor && confirmations.combined && quoteAccepted && termsAccepted } as const;
+    data = { ...data, consents };
     setSessionExpired(false);
     if (accountChanged) { setSaveError('Your signed-in account changed. Refresh this page before starting a new quote.'); return; }
     if (!user) {
@@ -273,6 +299,7 @@ export function LoanWizard({ account }: { account: Account | null }) {
         if (step < totalSteps) { event.preventDefault(); void handleNext(); return; }
         void handleSubmit(onSubmit)(event);
       }} className="flex-1 flex flex-col">
+        <div className="mb-4"><CollectionNotice/></div>
         <div className="flex-1">
           
           {/* ================= STEP 1 ================= */}
@@ -797,6 +824,10 @@ export function LoanWizard({ account }: { account: Account | null }) {
           )}
         </div>
 
+        {step === totalSteps && <section aria-label="Review and confirm" className="mt-6 space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+          <ConsentCheckbox purpose={termsAlreadyAccepted ? 'quoteAccepted' : 'quoteTermsAccepted'} checked={quoteAccepted} onChange={value => { setQuoteAccepted(value); setLegalError(''); }} disabled={isSubmitting}/>
+          {legalError && <p role="alert" className="text-sm text-red-600">{legalError}</p>}
+        </section>}
         <div className="mt-10 flex items-center justify-between border-t pt-6">
           {step > 1 ? (
             <Button type="button" variant="outline" onClick={handleBack} disabled={isSubmitting}>Back</Button>

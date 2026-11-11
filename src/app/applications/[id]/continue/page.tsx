@@ -1,5 +1,8 @@
 'use client';
 
+import { ConsentCheckbox } from '@/components/legal/ConsentCheckbox';
+import { CollectionNotice } from '@/components/legal/CollectionNotice';
+import { LEGAL_VERSION } from '@/lib/legal/consent';
 import { SelfEmploymentFields } from '@/components/form/SelfEmploymentFields';
 
 import Link from 'next/link';
@@ -39,6 +42,10 @@ function setValue(details: Details, path: string, value: unknown): Details {
 
 export default function ContinueApplicationPage() {
   const { id } = useParams<{ id: string }>();
+  return <ContinueApplicationForm key={id} id={id}/>;
+}
+
+function ContinueApplicationForm({ id }: { id: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedQuoteId = searchParams.get('quote');
@@ -53,15 +60,23 @@ export default function ContinueApplicationPage() {
   const [notice, setNotice] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [reviewStatus, setReviewStatus] = useState('NEW');
+  const [collectionAccepted, setCollectionAccepted] = useState(false);
+  const [collectionChecked, setCollectionChecked] = useState(false);
+  const [termsAlreadyAccepted, setTermsAlreadyAccepted] = useState(false);
+  const [termsChecked, setTermsChecked] = useState(false);
+  const [submissionConfirmed, setSubmissionConfirmed] = useState(false);
   const [brokerNote, setBrokerNote] = useState('');
 
-  const save = useCallback(async (submit = false) => {
+  const save = useCallback(async (submit = false, acceptCollection = false) => {
+    if (submit && !submissionConfirmed) { setError('Please confirm the accuracy of your information and request broker review before submitting.'); return false; }
     setSaving(true); setError(''); setNotice('');
     try {
-      const response = await fetch(`/api/application/${id}/continuation`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId: requestedQuoteId || undefined, details, submit }) });
-      const body = await response.json() as { error?: string; missing?: string[]; validationErrors?: string[]; status?: string; reviewStatus?: string };
+      const response = await fetch(`/api/application/${id}/continuation`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId: requestedQuoteId || undefined, details, submit, consents: { version: LEGAL_VERSION, collectionAccepted: acceptCollection, termsAccepted: termsChecked, submissionConfirmed } }) });
+      const body = await response.json() as { error?: string; missing?: string[]; validationErrors?: string[]; status?: string; reviewStatus?: string; selectedQuote?: SelectedQuote };
       if (response.status === 401) { router.replace(`/login?next=${encodeURIComponent(`/applications/${id}/continue${requestedQuoteId ? `?quote=${requestedQuoteId}` : ''}`)}`); return false; }
       if (!response.ok) throw new Error([body.error, body.missing?.length ? `Missing: ${body.missing.join(', ')}` : '', body.validationErrors?.join(' ')].filter(Boolean).join(' '));
+      if (body.selectedQuote) setQuote(body.selectedQuote);
+      if (acceptCollection) { setCollectionAccepted(true); setTermsAlreadyAccepted(true); }
       setReviewStatus(body.reviewStatus ?? 'NEW');
       setBrokerNote('');
       if (submit) { setSubmitted(true); setNotice('Your application has been submitted for broker review.'); }
@@ -69,7 +84,7 @@ export default function ContinueApplicationPage() {
       return true;
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save your application details.'); return false; }
     finally { setSaving(false); }
-  }, [details, id, requestedQuoteId, router]);
+  }, [details, id, requestedQuoteId, router, submissionConfirmed, termsChecked]);
 
   useEffect(() => {
     let active = true;
@@ -77,7 +92,7 @@ export default function ContinueApplicationPage() {
       try {
         const response = await fetch(`/api/application/${id}/continuation`, { cache: 'no-store' });
         if (response.status === 401) { router.replace(`/login?next=${encodeURIComponent(`/applications/${id}/continue`)}`); return; }
-        const body = await response.json() as { error?: string; continuation?: { details: Details; selectedQuote: SelectedQuote; documents: UploadedDocument[]; status: string; reviewStatus: string; brokerNote: string | null } | null; customer?: { fullName: string | null; email: string; phone: string | null }; knownAnswers?: { employmentStatus: string; employmentStartDate: string | null; annualIncome: string; maritalStatus: string; selfEmployment: Record<string, unknown>; partnerSelfEmployment: Record<string, unknown>; partnerEmploymentStatus: string | null; partnerAnnualIncome: string } };
+        const body = await response.json() as { error?: string; legal: { version: string; collectionAccepted: boolean; termsAccepted: boolean }; continuation?: { details: Details; selectedQuote: SelectedQuote; documents: UploadedDocument[]; status: string; reviewStatus: string; brokerNote: string | null } | null; customer?: { fullName: string | null; email: string; phone: string | null }; knownAnswers?: { employmentStatus: string; employmentStartDate: string | null; annualIncome: string; maritalStatus: string; selfEmployment: Record<string, unknown>; partnerSelfEmployment: Record<string, unknown>; partnerEmploymentStatus: string | null; partnerAnnualIncome: string } };
         if (!response.ok) throw new Error(body.error || 'Could not load application details.');
         let loadedDetails = body.continuation?.details ?? {};
         if (body.continuation?.status !== 'SUBMITTED' || body.continuation?.reviewStatus === 'NEEDS_INFORMATION') loadedDetails = editableContinuationDetails(loadedDetails, true);
@@ -104,20 +119,22 @@ export default function ContinueApplicationPage() {
           } else if (!getValue(loadedDetails, 'applicant2.annualIncome') && body.knownAnswers.partnerAnnualIncome) loadedDetails = setValue(loadedDetails, 'applicant2.annualIncome', body.knownAnswers.partnerAnnualIncome);
         }
         if (active) {
+          setCollectionAccepted(body.legal?.collectionAccepted === true && body.legal?.termsAccepted === true);
+          setTermsAlreadyAccepted(body.legal?.termsAccepted === true);
           setDetails(loadedDetails);
           setQuote(body.continuation?.selectedQuote ?? null);
           setDocuments(body.continuation?.documents ?? []);
           setReviewStatus(body.continuation?.reviewStatus ?? 'NEW');
           setBrokerNote(body.continuation?.brokerNote ?? '');
           setSubmitted(body.continuation?.status === 'SUBMITTED' && body.continuation.reviewStatus !== 'NEEDS_INFORMATION');
-          if (body.continuation && requestedQuoteId && body.continuation.selectedQuote.id !== requestedQuoteId) {
-            const changed = await fetch(`/api/application/${id}/continuation`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId: requestedQuoteId, details: loadedDetails }) });
+          if (body.legal?.collectionAccepted && body.legal?.termsAccepted && body.continuation && requestedQuoteId && body.continuation.selectedQuote.id !== requestedQuoteId) {
+            const changed = await fetch(`/api/application/${id}/continuation`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId: requestedQuoteId, details: loadedDetails, consents: { version: LEGAL_VERSION } }) });
             const changedBody = await changed.json() as { error?: string; selectedQuote?: SelectedQuote };
             if (!changed.ok) throw new Error(changedBody.error || 'Could not switch the selected product.');
             if (active) setQuote(changedBody.selectedQuote ?? null);
           }
-          if (requestedQuoteId && !body.continuation) {
-            const init = await fetch(`/api/application/${id}/continuation`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId: requestedQuoteId, details: loadedDetails }) });
+          if (body.legal?.collectionAccepted && body.legal?.termsAccepted && requestedQuoteId && !body.continuation) {
+            const init = await fetch(`/api/application/${id}/continuation`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quoteId: requestedQuoteId, details: loadedDetails, consents: { version: LEGAL_VERSION } }) });
             const initBody = await init.json() as { error?: string; selectedQuote?: SelectedQuote };
             if (!init.ok) throw new Error(initBody.error || 'Could not start this application.');
             if (active) setQuote(initBody.selectedQuote ?? null);
@@ -165,7 +182,7 @@ export default function ContinueApplicationPage() {
     {error && <div role="alert" className="mt-5 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />{error}</div>}
     {notice && <div role="status" className="mt-5 flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />{notice}</div>}
     {reviewStatus === 'NEEDS_INFORMATION' && brokerNote && <section className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-bold text-amber-950">Your broker needs a little more information</h2><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-amber-900">{brokerNote}</p><p className="mt-2 text-sm text-amber-900">Update the details or documents below, then submit them again for review.</p></section>}
-    {submitted ? <section className="mt-6 rounded-2xl border border-emerald-200 bg-white p-8"><CheckCircle2 className="h-8 w-8 text-emerald-600"/><h2 className="mt-3 text-xl font-bold">Application submitted</h2><p className="mt-2 text-slate-600">Your application and any documents you uploaded have been received. A broker will review the information and contact you using the details you provided. If anything else is needed, your broker will let you know.</p><div className="mt-4 rounded-xl bg-emerald-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Current status</p><p className="mt-1 font-semibold text-emerald-950">{reviewStatus === 'IN_REVIEW' ? 'A broker is reviewing your application' : reviewStatus === 'READY_TO_SUBMIT' ? 'Your application is ready for the next step' : 'Waiting for broker review'}</p>{brokerNote && <p className="mt-2 whitespace-pre-wrap text-sm text-emerald-900">{brokerNote}</p>}</div><Link href={`/applications/${id}/details`} className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white hover:bg-primary/90">View submitted application<ArrowRight className="h-4 w-4"/></Link></section> : <>
+    {submitted ? <section className="mt-6 rounded-2xl border border-emerald-200 bg-white p-8"><CheckCircle2 className="h-8 w-8 text-emerald-600"/><h2 className="mt-3 text-xl font-bold">Application submitted</h2><p className="mt-2 text-slate-600">Your application and any documents you uploaded have been received. A broker will review the information and contact you using the details you provided. If anything else is needed, your broker will let you know.</p><div className="mt-4 rounded-xl bg-emerald-50 p-4"><p className="text-xs font-bold uppercase tracking-wide text-emerald-800">Current status</p><p className="mt-1 font-semibold text-emerald-950">{reviewStatus === 'IN_REVIEW' ? 'A broker is reviewing your application' : reviewStatus === 'READY_TO_SUBMIT' ? 'Your application is ready for the next step' : 'Waiting for broker review'}</p>{brokerNote && <p className="mt-2 whitespace-pre-wrap text-sm text-emerald-900">{brokerNote}</p>}</div><Link href={`/applications/${id}/details`} className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-bold text-white hover:bg-primary/90">View submitted application<ArrowRight className="h-4 w-4"/></Link></section> : !collectionAccepted ? <section className="mt-6 space-y-5 rounded-2xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-bold text-slate-900">Before you provide application details</h2><CollectionNotice/><p className="text-sm leading-6 text-slate-600">Please review the Application Collection Notice before saving additional details or uploading documents. All form fields and uploads remain optional.</p>{!termsAlreadyAccepted && <ConsentCheckbox purpose="termsAccepted" checked={termsChecked} onChange={setTermsChecked} disabled={saving}/>}<ConsentCheckbox purpose="collectionAccepted" checked={collectionChecked} onChange={setCollectionChecked} disabled={saving}/><button type="button" onClick={() => void save(false, true)} disabled={saving || !collectionChecked || (!termsAlreadyAccepted && !termsChecked)} className="rounded-full bg-primary px-5 py-3 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Saving confirmation…' : 'Agree and continue'}</button></section> : <>
       <div className="mt-6 space-y-5">{sections.filter(section => !(section.title === 'Previous employment (if applicable)' && getValue(details, 'currentEmployment.employmentType') === 'SELF_EMPLOYED')).map(section => <section key={section.title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><h2 className="text-xl font-bold text-slate-900">{section.title}</h2>{section.note && <p className="mt-1 text-sm leading-6 text-slate-600">{section.note}</p>}<div className="mt-5 grid gap-4 sm:grid-cols-2">{section.fields.filter(field => !(section.title === 'Current employment' && getValue(details, 'currentEmployment.employmentType') === 'SELF_EMPLOYED' && field.path !== 'currentEmployment.employmentType') && !(field.path === 'applicant2.annualIncome' && getValue(details, 'applicant2.employmentStatus') === 'SELF_EMPLOYED')).map(field => {
         const raw = getValue(details, field.path);
         const value = typeof raw === 'string' || typeof raw === 'number' ? String(raw) : '';
@@ -187,6 +204,7 @@ export default function ContinueApplicationPage() {
       </section>)}</div>
       <OwnedPropertiesForm value={details.properties} disabled={submitted} onChange={value => setDetails(current => ({ ...current, properties: value }))} />
       <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"><h2 className="text-xl font-bold text-slate-900">Supporting documents</h2><p className="mt-1 text-sm leading-6 text-slate-600">Upload PDF, JPG or PNG files up to 10 MB each. All uploads are optional. Provide the documents that apply to you; your broker can discuss anything missing.</p><div className="mt-5 space-y-3">{[...APPLICATION_DOCUMENT_TYPES, ...Array.from(new Set(documents.map(doc => doc.category))).filter(category => !APPLICATION_DOCUMENT_TYPES.some(item => item.id === category)).map(id => ({ id, title: applicationDocumentTitle(id), description: 'Previously uploaded supporting documents.' }))].map(item => { const attached = documents.filter(doc => doc.category === item.id); return <div key={item.id} className="rounded-xl border border-slate-200 p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><p className="font-semibold text-slate-900">{item.title}</p><p className="mt-1 text-sm leading-5 text-slate-600">{item.description}</p>{attached.map(doc => <div key={doc.id} className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-emerald-50 px-3 py-2"><span className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5 shrink-0"/><span className="truncate"><span className="font-bold">{applicationDocumentTitle(doc.category)}:</span> {doc.fileName} · {(doc.sizeBytes / (1024 * 1024)).toFixed(1)} MB</span></span><span className="flex shrink-0 items-center gap-3"><a href={`/api/application/${id}/continuation/documents/${doc.id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Review<ExternalLink className="h-3.5 w-3.5"/></a><button type="button" disabled={Boolean(removingDocument)} onClick={() => void removeDocument(doc)} className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 hover:underline disabled:opacity-50">{removingDocument === doc.id ? 'Removing…' : 'Remove'}<Trash2 className="h-3.5 w-3.5"/></button></span></div>)}</div><label className={`inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-primary hover:text-primary ${uploading === item.id ? 'pointer-events-none opacity-50' : ''}`}><FileUp className="h-4 w-4"/>{uploading === item.id ? 'Uploading…' : attached.length ? 'Add another' : 'Upload'}<input type="file" accept="application/pdf,image/jpeg,image/png" className="sr-only" disabled={submitted || Boolean(uploading)} onChange={event => { void upload(item.id, event.target.files?.[0]); event.currentTarget.value = ''; }}/></label></div></div>; })}</div></section>
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4"><ConsentCheckbox purpose="submissionConfirmed" checked={submissionConfirmed} onChange={setSubmissionConfirmed} disabled={saving}/></div>
       <div className="sticky bottom-0 mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur"><p className="text-xs text-slate-500">You can save now and finish this later.</p><div className="flex flex-wrap gap-3"><button type="button" onClick={() => void save(false)} disabled={saving || Boolean(uploading)} className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-5 py-3 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Save className="h-4 w-4"/>{saving ? 'Saving…' : 'Submit later'}</button><button type="button" onClick={() => void save(true)} disabled={saving || Boolean(uploading)} className="rounded-full bg-primary px-5 py-3 text-sm font-bold text-white hover:bg-primary/90 disabled:opacity-50">{saving ? 'Submitting…' : 'Submit application details'}</button></div></div>
     </>}
   </div></main>;

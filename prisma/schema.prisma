@@ -9,6 +9,33 @@ datasource db {
 // --------------------------------------------------------------------
 // ENUMS
 // --------------------------------------------------------------------
+enum LegalDocumentType {
+  TERMS
+  PRIVACY
+  COLLECTION_NOTICE
+}
+
+enum LegalConsentPurpose {
+  TERMS_ACCEPTANCE
+  QUOTE_COLLECTION
+  APPLICATION_COLLECTION
+  APPLICATION_SUBMISSION
+  BROKER_CONTACT
+}
+
+enum LegalConsentAction {
+  GRANTED
+  WITHDRAWN
+}
+
+enum LegalConsentSource {
+  REGISTRATION
+  QUESTIONNAIRE
+  CONTINUATION
+  FINAL_SUBMISSION
+  BROKER_ENQUIRY
+}
+
 enum UserRole {
   CUSTOMER
   BROKER
@@ -259,6 +286,8 @@ model Profile {
   brokerEnquiries              BrokerEnquiry[]         @relation("EnquiryCustomer")
   assignedEnquiries            BrokerEnquiry[]         @relation("EnquiryAssignee")
   enquiryActivities            BrokerEnquiryActivity[]
+
+  legalConsents LegalConsentRecord[]
 
   @@map("profiles")
 }
@@ -596,6 +625,8 @@ model Application {
 
   businessProfiles ApplicationBusinessProfile[]
 
+  legalConsents LegalConsentRecord[]
+
   @@map("applications")
 }
 
@@ -877,6 +908,8 @@ model BrokerEnquiry {
   activities        BrokerEnquiryActivity[]
   notifications     NotificationEvent[]
 
+  legalConsents LegalConsentRecord[]
+
   @@index([status, createdAt])
   @@index([email, createdAt])
   @@index([requestIpHash, createdAt])
@@ -945,4 +978,47 @@ model NotificationDelivery {
   @@unique([eventId, recipientEmail])
   @@index([status, nextAttemptAt])
   @@map("notification_deliveries")
+}
+
+model LegalDocumentVersion {
+  id          String               @id @default(uuid()) @db.Uuid
+  type        LegalDocumentType
+  version     String               @db.VarChar(40)
+  title       String               @db.VarChar(200)
+  path        String               @db.VarChar(100)
+  content     Json
+  contentHash String               @map("content_hash") @db.Char(64)
+  publishedAt DateTime             @map("published_at")
+  createdAt   DateTime             @default(now()) @map("created_at")
+  consents    LegalConsentRecord[]
+
+  @@unique([type, version])
+  @@map("legal_document_versions")
+}
+
+model LegalConsentRecord {
+  id                String              @id @default(uuid()) @db.Uuid
+  recordKey         String              @unique @map("record_key") @db.Char(64)
+  purpose           LegalConsentPurpose
+  action            LegalConsentAction  @default(GRANTED)
+  source            LegalConsentSource
+  documentVersionId String              @map("document_version_id") @db.Uuid
+  profileId         String?             @map("profile_id") @db.Uuid
+  clerkUserId       String?             @map("clerk_user_id") @db.VarChar(255)
+  applicationId     String?             @map("application_id") @db.Uuid
+  enquiryId         String?             @map("enquiry_id") @db.Uuid
+  statement         String              @db.VarChar(2000)
+  recordedAt        DateTime            @default(now()) @map("recorded_at")
+
+  documentVersion LegalDocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Restrict)
+  profile         Profile?             @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  application     Application?         @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  enquiry         BrokerEnquiry?       @relation(fields: [enquiryId], references: [id], onDelete: Restrict)
+
+  @@index([clerkUserId, purpose, recordedAt])
+  @@index([profileId])
+  @@index([applicationId, purpose, recordedAt])
+  @@index([enquiryId])
+  @@index([documentVersionId])
+  @@map("legal_consent_records")
 }

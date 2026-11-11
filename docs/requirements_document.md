@@ -25,7 +25,7 @@ REMOVE: citi australia
    }
    ```
 
-2. 增加 self employ 这个选项, SE 的话填写 ABN, established date, businese profit,不填写雇员相关信息
+✅2. 增加 self employ 这个选项, SE 的话填写 ABN, established date, businese profit,不填写雇员相关信息
 
 ✅3. header 中的talk to a broker button 点击之后出现一个覆盖悬浮窗MODAL 不要做点点蒙层关闭) 浮窗中让用户留下他的联系方式以及一个 Message 的输入框,
    这个信息会保存并且写入数据库并且给到 admin 端口去查看(后续还会接入 email 通知admin, 将消息内容和联系方式发送给 admin 邮箱)
@@ -39,7 +39,7 @@ REMOVE: citi australia
 ✅7. 在完成了推荐之后增加一个我们的 Specialist will review and contact you 这个提示, 提示的类型需要确认下, alter 还是什么之后的
 
 ✅8. 婚姻状态只留下 3 个即可, 同步可能还要调整 single parrent 这个产品的筛选条件.
-9. 增加一下 privacy term consent
+✅9. 增加一下 privacy term consent
 10. 上传文档过程中加一个 loading
 
 ✅11. 调整 continue 之后收集信息的表格
