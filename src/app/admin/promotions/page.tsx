@@ -122,7 +122,7 @@ export default function AdminPromotionsPage() {
       {!data?.reviewQueue.length && <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center"><CheckCircle2 className="mx-auto h-9 w-9 text-emerald-600"/><h2 className="mt-3 text-lg font-bold text-slate-900">Nothing to review</h2><p className="mt-1 text-sm text-slate-600">New or changed bank offers will appear here after a product sync.</p></div>}
       {data?.reviewQueue.map(snapshot => <article key={snapshot.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4"><div><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${snapshot.changeType === 'UPDATED' ? 'bg-amber-100 text-amber-900' : snapshot.changeType === 'REMOVED' ? 'bg-red-100 text-red-800' : 'bg-blue-100 text-blue-800'}`}>{humanize(snapshot.changeType)}</span><span className="text-xs text-slate-500">Observed {dateLabel(snapshot.lastObservedAt)}</span></div><h2 className="mt-2 text-lg font-bold text-slate-900">{snapshot.product.lender.name} · {snapshot.product.productName}</h2><p className="mt-1 text-xs text-slate-500">CDR product ID: {snapshot.product.externalId}</p></div><Megaphone className="h-6 w-6 text-amber-700"/></div>
-        <SourceContent feature={snapshot.sourceFeature}/>
+        <SourceContent feature={snapshot.sourceFeature} expanded/>
         {snapshot.previousSource && <details className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-amber-900">Compare previous bank source · observed {dateLabel(snapshot.previousSource.lastObservedAt)}</summary><div className="border-t border-amber-200 p-4"><SourceContent feature={snapshot.previousSource.sourceFeature}/></div></details>}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4"><p className="text-sm text-slate-600">Detected amount: <span className="font-semibold text-slate-900">{money(snapshot.suggestedAmount)}</span>{snapshot.amountParseStatus !== 'PARSED' && <span className="ml-2 text-amber-800">Needs manual entry</span>}</p><div className="flex flex-wrap gap-2"><button type="button" onClick={() => void review(snapshot, 'IGNORE')} disabled={busyId === snapshot.id} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{busyId === snapshot.id ? 'Saving…' : 'Not an offer'}</button>{snapshot.changeType !== 'REMOVED' && <button type="button" onClick={() => setEditing(editing === snapshot.id ? null : snapshot.id)} className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary/90"><Pencil className="h-4 w-4"/>{editing === snapshot.id ? 'Close editor' : 'Review and publish'}</button>}</div></div>
         {editing === snapshot.id && <PromotionEditor key={`${snapshot.id}-${snapshot.promotions[0]?.id ?? 'new'}`} snapshot={snapshot} initial={emptyForm(snapshot, snapshot.promotions[0])} busy={busyId === snapshot.id} onCancel={() => setEditing(null)} onPublish={values => void review(snapshot, 'PUBLISH', values)}/>}
@@ -141,10 +141,27 @@ export default function AdminPromotionsPage() {
   </main>;
 }
 
-function SourceContent({ feature }: { feature: Feature }) {
+function SourceContent({ feature, expanded = false }: { feature: Feature; expanded?: boolean }) {
   const info = typeof feature.additionalInfo === 'string' ? feature.additionalInfo : typeof feature.description === 'string' ? feature.description : '';
-  const uri = typeof feature.additionalInfoUri === 'string' ? feature.additionalInfoUri : '';
-  return <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Bank offer information</summary><div className="space-y-3 border-t border-slate-200 p-4">{info && <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{info}</p>}{uri && <a href={uri} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-primary underline">Open bank source <ExternalLink className="h-3.5 w-3.5"/></a>}{!info && !uri && <p className="text-sm text-slate-500">No bank description or source link was provided.</p>}</div></details>;
+  const rawAmount = typeof feature.additionalValue === 'string' || typeof feature.additionalValue === 'number' ? String(feature.additionalValue).trim() : '';
+  const isAmount = /^\d+(?:\.\d+)?$/.test(rawAmount) && Number.isFinite(Number(rawAmount));
+  const amount = isAmount ? new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(rawAmount)) : null;
+  let uri = '';
+  if (typeof feature.additionalInfoUri === 'string') {
+    try {
+      const source = new URL(feature.additionalInfoUri);
+      if (source.protocol === 'http:' || source.protocol === 'https:') uri = source.href;
+    } catch { /* A missing or malformed source link must not hide the bank text. */ }
+  }
+  return <details open={expanded} className="mt-4 rounded-xl border border-slate-200 bg-slate-50">
+    <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-slate-700">Bank offer information{amount && <span className="ml-3 inline-block text-primary">Bank amount: {amount} AUD</span>}</summary>
+    <div className="space-y-4 border-t border-slate-200 p-4">
+      <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bank cashback amount (AUD)</p><p className="mt-1 text-lg font-bold text-slate-900">{amount ?? (rawAmount || 'Not provided by the bank')}</p>{rawAmount && !isAmount && <p className="mt-1 text-xs text-amber-800">The bank supplied this value as text. Confirm the cashback amount before publishing.</p>}</div>
+      <div><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bank offer text</p><p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{info || 'No offer text was provided by the bank.'}</p></div>
+      {uri && <a href={uri} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm font-semibold text-primary underline">Open bank source <ExternalLink className="h-3.5 w-3.5"/></a>}
+      <p className="text-xs leading-5 text-slate-500">This is the bank’s source information. Review the amount and conditions in the editor before publishing the offer.</p>
+    </div>
+  </details>;
 }
 
 function OfferSummary({ promotion }: { promotion: Promotion }) {
