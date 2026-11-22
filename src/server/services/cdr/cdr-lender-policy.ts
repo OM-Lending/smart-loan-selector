@@ -6,7 +6,7 @@ const TARGET_BANKS = [
 ];
 
 // Explicit exclusions also apply to lenders already stored in the database.
-const EXCLUDED_BANKS = ['Citi', 'Citibank'];
+const EXCLUDED_BANKS = ['Citi', 'Citibank', 'ANZ Plus'];
 
 function matchesBankName(brandName: string, names: readonly string[]): boolean {
   const normalize = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
